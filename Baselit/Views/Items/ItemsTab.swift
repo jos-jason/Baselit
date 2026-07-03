@@ -7,43 +7,108 @@ enum ItemSortOrder: String, CaseIterable {
     case category = "Category"
 }
 
+enum ItemsFilter: Hashable {
+    case all            // Items + Containers
+    case itemsOnly      // Items only (no containers)
+    case category(ItemCategory) // Specific category (items only)
+}
+
 struct ItemsTab: View {
     @Query(sort: \Item.name) private var allItems: [Item]
+    @Query(sort: \Container.name) private var allContainers: [Container]
     @State private var sortOrder: ItemSortOrder = .name
-    @State private var filterCategory: ItemCategory?
+    @State private var activeFilter: ItemsFilter = .all
 
-    private var sortedItems: [Item] {
-        var items = allItems
-        if let filterCategory {
-            items = items.filter { $0.category == filterCategory }
+    /// Unified row model for the list
+    private enum ListEntry: Identifiable {
+        case item(Item)
+        case container(Container)
+
+        var id: String {
+            switch self {
+            case .item(let item): return "item-\(item.persistentModelID.hashValue)"
+            case .container(let container): return "container-\(container.persistentModelID.hashValue)"
+            }
         }
+
+        var name: String {
+            switch self {
+            case .item(let item): return item.name
+            case .container(let container): return container.name
+            }
+        }
+
+        var updatedAt: Date {
+            switch self {
+            case .item(let item): return item.updatedAt
+            case .container(let container): return container.updatedAt
+            }
+        }
+
+        var categoryName: String {
+            switch self {
+            case .item(let item): return item.category?.displayName ?? "zzz"
+            case .container: return "Container"
+            }
+        }
+    }
+
+    private var entries: [ListEntry] {
+        var result: [ListEntry] = []
+
+        switch activeFilter {
+        case .all:
+            result = allItems.map { .item($0) } + allContainers.map { .container($0) }
+        case .itemsOnly:
+            result = allItems.map { .item($0) }
+        case .category(let category):
+            result = allItems.filter { $0.category == category }.map { .item($0) }
+        }
+
         switch sortOrder {
         case .name:
-            return items.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            result.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
         case .recentlyUpdated:
-            return items.sorted { $0.updatedAt > $1.updatedAt }
+            result.sort { $0.updatedAt > $1.updatedAt }
         case .category:
-            return items.sorted {
-                let cat0 = $0.category?.displayName ?? "zzz"
-                let cat1 = $1.category?.displayName ?? "zzz"
-                return cat0 < cat1
-            }
+            result.sort { $0.categoryName < $1.categoryName }
+        }
+
+        return result
+    }
+
+    private var isEmpty: Bool {
+        allItems.isEmpty && allContainers.isEmpty
+    }
+
+    private var filterLabel: String {
+        switch activeFilter {
+        case .all: return "All (Items & Containers)"
+        case .itemsOnly: return "Items Only"
+        case .category(let cat): return cat.displayName
         }
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if allItems.isEmpty {
+                if isEmpty {
                     EmptyStateView(
                         icon: "shippingbox",
                         title: "No Items",
                         message: "Add items from a location or container to start tracking."
                     )
                 } else {
-                    List(sortedItems) { item in
-                        NavigationLink(value: item) {
-                            ItemRow(item: item)
+                    List(entries) { entry in
+                        switch entry {
+                        case .item(let item):
+                            NavigationLink(value: item) {
+                                ItemRow(item: item)
+                            }
+                        case .container(let container):
+                            NavigationLink(value: container) {
+                                ContainerRow(container: container)
+                            }
                         }
                     }
                 }
@@ -51,6 +116,9 @@ struct ItemsTab: View {
             .navigationTitle("Items")
             .navigationDestination(for: Item.self) { item in
                 ItemDetailView(item: item)
+            }
+            .navigationDestination(for: Container.self) { container in
+                ContainerDetailView(container: container)
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -61,18 +129,39 @@ struct ItemsTab: View {
                             }
                         }
                         Divider()
-                        Menu("Filter by Category") {
-                            Button("All Categories") {
-                                filterCategory = nil
+                        Menu("Filter") {
+                            Button {
+                                activeFilter = .all
+                            } label: {
+                                HStack {
+                                    Text("All (Items & Containers)")
+                                    if case .all = activeFilter { Image(systemName: "checkmark") }
+                                }
                             }
+                            Button {
+                                activeFilter = .itemsOnly
+                            } label: {
+                                HStack {
+                                    Text("Items Only")
+                                    if case .itemsOnly = activeFilter { Image(systemName: "checkmark") }
+                                }
+                            }
+                            Divider()
                             ForEach(ItemCategory.allCases) { cat in
-                                Button(cat.displayName) {
-                                    filterCategory = cat
+                                Button {
+                                    activeFilter = .category(cat)
+                                } label: {
+                                    HStack {
+                                        Text(cat.displayName)
+                                        if case .category(let active) = activeFilter, active == cat {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
                                 }
                             }
                         }
                     } label: {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
+                        Image(systemName: activeFilter is ItemsFilter ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle")
                     }
                 }
             }
