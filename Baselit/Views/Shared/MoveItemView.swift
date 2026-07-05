@@ -1,15 +1,30 @@
 import SwiftUI
 import SwiftData
 
+private enum HouseSelection: Hashable {
+    case none
+    case unassigned
+    case house(PersistentIdentifier)
+}
+
 struct MoveItemView: View {
     let item: Item
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var houses: [House] = []
-    @State private var selectedHouse: House?
+    @State private var allUnassignedContainers: [Container] = []
+    @State private var houseSelection: HouseSelection = .none
     @State private var selectedLocation: Location?
     @State private var selectedContainer: Container?
-    @State private var allContainers: [Container] = []
+
+    private var selectedHouse: House? {
+        guard case .house(let id) = houseSelection else { return nil }
+        return houses.first { $0.persistentModelID == id }
+    }
+
+    private var isUnassigned: Bool {
+        houseSelection == .unassigned
+    }
 
     private var availableLocations: [Location] {
         selectedHouse?.locations.sorted(by: { $0.name < $1.name }) ?? []
@@ -17,8 +32,12 @@ struct MoveItemView: View {
 
     private var availableContainers: [Container] {
         guard let location = selectedLocation else { return [] }
-        // Show containers at this location and their nested children
         return location.containers.sorted(by: { $0.name < $1.name })
+    }
+
+    /// Top-level unassigned containers available as destinations
+    private var unassignedContainerOptions: [Container] {
+        allUnassignedContainers.sorted(by: { $0.name < $1.name })
     }
 
     var body: some View {
@@ -29,15 +48,28 @@ struct MoveItemView: View {
             }
 
             Section("Move To") {
-                Picker("House", selection: $selectedHouse) {
-                    Text("Select house...").tag(nil as House?)
+                Picker("House", selection: $houseSelection) {
+                    Text("Select house...").tag(HouseSelection.none)
+                    Text("Unassigned").tag(HouseSelection.unassigned)
                     ForEach(houses) { house in
-                        Text(house.name).tag(house as House?)
+                        Text(house.name).tag(HouseSelection.house(house.persistentModelID))
                     }
                 }
-                .onChange(of: selectedHouse) {
+                .onChange(of: houseSelection) {
                     selectedLocation = nil
                     selectedContainer = nil
+                }
+
+                if isUnassigned && !unassignedContainerOptions.isEmpty {
+                    Picker("Container (optional)", selection: $selectedContainer) {
+                        Text("No container").tag(nil as Container?)
+                        ForEach(unassignedContainerOptions) { container in
+                            Text(container.name).tag(container as Container?)
+                        }
+                        ForEach(nestedUnassignedContainers()) { container in
+                            Text(indentedName(for: container)).tag(container as Container?)
+                        }
+                    }
                 }
 
                 if selectedHouse != nil {
@@ -58,7 +90,6 @@ struct MoveItemView: View {
                         ForEach(availableContainers) { container in
                             Text(container.name).tag(container as Container?)
                         }
-                        // Also show nested containers
                         ForEach(nestedContainers()) { container in
                             Text(indentedName(for: container)).tag(container as Container?)
                         }
@@ -66,7 +97,17 @@ struct MoveItemView: View {
                 }
             }
 
-            if selectedLocation != nil || selectedContainer != nil {
+            if isUnassigned {
+                Section("New Path") {
+                    if let container = selectedContainer {
+                        Text("Unassigned › \(container.name)")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Unassigned")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if selectedLocation != nil || selectedContainer != nil {
                 Section("New Path") {
                     Text(previewPath)
                         .foregroundStyle(.secondary)
@@ -83,19 +124,27 @@ struct MoveItemView: View {
                 Button("Move") {
                     performMove()
                 }
-                .disabled(selectedLocation == nil)
+                .disabled(!isUnassigned && selectedLocation == nil)
             }
         }
         .onAppear {
             do {
                 houses = try InventoryService.allHouses(in: modelContext)
+                let allContainers = try InventoryService.allContainers(in: modelContext)
+                allUnassignedContainers = allContainers.filter {
+                    $0.parentContainer == nil && $0.location == nil
+                }
             } catch {
                 houses = []
+                allUnassignedContainers = []
             }
-            // Pre-select current house and location
-            selectedHouse = item.resolvedHouse
-            selectedLocation = item.container?.resolvedLocation ?? item.location
-            selectedContainer = item.container
+            if let house = item.resolvedHouse {
+                houseSelection = .house(house.persistentModelID)
+                selectedLocation = item.container?.resolvedLocation ?? item.location
+                selectedContainer = item.container
+            } else if item.container == nil && item.location == nil {
+                houseSelection = .unassigned
+            }
         }
     }
 
@@ -108,7 +157,6 @@ struct MoveItemView: View {
             components.append(location.name)
         }
         if let container = selectedContainer {
-            // Build container path
             var containerPath: [String] = [container.name]
             var current = container.parentContainer
             while let parent = current {
@@ -118,6 +166,14 @@ struct MoveItemView: View {
             components.append(contentsOf: containerPath)
         }
         return components.joined(separator: " › ")
+    }
+
+    private func nestedUnassignedContainers() -> [Container] {
+        var result: [Container] = []
+        for container in unassignedContainerOptions {
+            collectNested(container: container, into: &result)
+        }
+        return result
     }
 
     private func nestedContainers() -> [Container] {
@@ -142,15 +198,25 @@ struct MoveItemView: View {
             depth += 1
             current = current?.parentContainer
         }
-        let indent = String(repeating: "  ", count: depth)
-        return indent + container.name
+        return String(repeating: "  ", count: depth) + container.name
     }
 
     private func performMove() {
+        let targetContainer: Container?
+        let targetLocation: Location?
+
+        if isUnassigned {
+            targetContainer = selectedContainer
+            targetLocation = nil
+        } else {
+            targetContainer = selectedContainer
+            targetLocation = selectedContainer == nil ? selectedLocation : nil
+        }
+
         ContainerService.moveItem(
             item,
-            toContainer: selectedContainer,
-            toLocation: selectedContainer == nil ? selectedLocation : nil
+            toContainer: targetContainer,
+            toLocation: targetLocation
         )
         dismiss()
     }

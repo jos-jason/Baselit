@@ -1,6 +1,14 @@
 import SwiftUI
 import SwiftData
 
+/// Represents the house selection in move destination pickers.
+/// Allows "Unassigned" to appear alongside real houses in a single Picker.
+private enum HouseSelection: Hashable {
+    case none
+    case unassigned
+    case house(PersistentIdentifier)
+}
+
 struct BatchMoveView: View {
     let items: [Item]
     let containers: [Container]
@@ -9,7 +17,7 @@ struct BatchMoveView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var houses: [House] = []
-    @State private var selectedHouse: House?
+    @State private var houseSelection: HouseSelection = .none
     @State private var selectedLocation: Location?
     @State private var selectedContainer: Container?
     @State private var errorMessage: String?
@@ -18,16 +26,23 @@ struct BatchMoveView: View {
         items.count + containers.count
     }
 
+    private var selectedHouse: House? {
+        guard case .house(let id) = houseSelection else { return nil }
+        return houses.first { $0.persistentModelID == id }
+    }
+
+    private var isUnassigned: Bool {
+        houseSelection == .unassigned
+    }
+
     private var availableLocations: [Location] {
         selectedHouse?.locations.sorted(by: { $0.name < $1.name }) ?? []
     }
 
-    /// IDs of containers being moved (used to exclude them from target picker)
     private var movingContainerIDs: Set<PersistentIdentifier> {
         Set(containers.map(\.persistentModelID))
     }
 
-    /// Top-level containers at the selected location, excluding any being moved
     private var availableContainers: [Container] {
         guard let location = selectedLocation else { return [] }
         return location.containers
@@ -49,13 +64,14 @@ struct BatchMoveView: View {
             }
 
             Section("Destination") {
-                Picker("House", selection: $selectedHouse) {
-                    Text("Select house...").tag(nil as House?)
+                Picker("House", selection: $houseSelection) {
+                    Text("Select house...").tag(HouseSelection.none)
+                    Text("Unassigned").tag(HouseSelection.unassigned)
                     ForEach(houses) { house in
-                        Text(house.name).tag(house as House?)
+                        Text(house.name).tag(HouseSelection.house(house.persistentModelID))
                     }
                 }
-                .onChange(of: selectedHouse) {
+                .onChange(of: houseSelection) {
                     selectedLocation = nil
                     selectedContainer = nil
                 }
@@ -85,7 +101,12 @@ struct BatchMoveView: View {
                 }
             }
 
-            if selectedLocation != nil || selectedContainer != nil {
+            if isUnassigned {
+                Section("New Path") {
+                    Text("Unassigned")
+                        .foregroundStyle(.secondary)
+                }
+            } else if selectedLocation != nil || selectedContainer != nil {
                 Section("New Path") {
                     Text(previewPath)
                         .foregroundStyle(.secondary)
@@ -107,7 +128,7 @@ struct BatchMoveView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Move") { performBatchMove() }
-                    .disabled(selectedLocation == nil)
+                    .disabled(!isUnassigned && selectedLocation == nil)
             }
         }
         .onAppear {
@@ -143,8 +164,6 @@ struct BatchMoveView: View {
 
     // MARK: - Container Filtering
 
-    /// Check if a container should be excluded from the target picker
-    /// (because it's being moved, or is a descendant of one being moved)
     private func isExcluded(_ container: Container) -> Bool {
         if movingContainerIDs.contains(container.persistentModelID) {
             return true
@@ -195,10 +214,9 @@ struct BatchMoveView: View {
     // MARK: - Perform Move
 
     private func performBatchMove() {
-        let targetContainer = selectedContainer
-        let targetLocation = selectedContainer == nil ? selectedLocation : nil
+        let targetContainer = isUnassigned ? nil : selectedContainer
+        let targetLocation = isUnassigned ? nil : (selectedContainer == nil ? selectedLocation : nil)
 
-        // Move items (these never cause cycle errors)
         for item in items {
             ContainerService.moveItem(
                 item,
@@ -207,7 +225,6 @@ struct BatchMoveView: View {
             )
         }
 
-        // Move containers (may throw cycle errors)
         for container in containers {
             do {
                 try ContainerService.moveContainer(
