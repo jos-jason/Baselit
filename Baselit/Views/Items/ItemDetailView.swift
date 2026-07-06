@@ -8,11 +8,41 @@ struct ItemDetailView: View {
     @State private var showEditSheet = false
     @State private var showMoveSheet = false
     @State private var showDeleteConfirmation = false
+    @State private var showCamera = false
+    @State private var showShareSheet = false
 
     var body: some View {
         List {
-            // Breadcrumb
+            // Title
             Section {
+                Text(item.name)
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+
+            // Photos
+            Section("Photos") {
+                PhotoGalleryView(
+                    photos: item.photos,
+                    onAdd: { photo in
+                        item.photos.append(photo)
+                    },
+                    onDelete: { photo in
+                        item.photos.removeAll { $0.persistentModelID == photo.persistentModelID }
+                    },
+                    showCamera: $showCamera
+                )
+            }
+
+            // Breadcrumb & ID
+            Section {
+                LabeledContent("ID") {
+                    Text(item.identifier)
+                        .fontDesign(.monospaced)
+                        .foregroundStyle(.secondary)
+                }
                 BreadcrumbView(components: item.breadcrumbComponents)
             }
 
@@ -76,6 +106,12 @@ struct ItemDetailView: View {
             // Actions
             Section {
                 Button {
+                    showShareSheet = true
+                } label: {
+                    Label("Print Label", systemImage: "qrcode")
+                }
+
+                Button {
                     showMoveSheet = true
                 } label: {
                     Label("Move Item", systemImage: "arrow.right")
@@ -89,6 +125,7 @@ struct ItemDetailView: View {
             }
         }
         .navigationTitle(item.name)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Edit") {
@@ -118,6 +155,30 @@ struct ItemDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will permanently delete this item.")
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraView { capturedImage in
+                let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
+                let context = modelContext
+                Task.detached {
+                    let compressed = compressImageForGallery(data: data, maxDimension: 1200)
+                    await MainActor.run {
+                        let photo = Photo(imageData: compressed)
+                        context.insert(photo)
+                        item.photos.append(photo)
+                    }
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(activityItems: [
+                LabelGenerator.generateLabel(
+                    name: item.name,
+                    identifier: item.identifier,
+                    type: "item"
+                )
+            ])
         }
     }
 }

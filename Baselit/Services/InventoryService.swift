@@ -13,22 +13,24 @@ struct InventoryService {
         tags: [Tag] = [],
         in context: ModelContext
     ) throws -> [Item] {
-        var descriptor = FetchDescriptor<Item>(
+        let descriptor = FetchDescriptor<Item>(
             sortBy: [SortDescriptor(\Item.name)]
         )
 
+        var results = try context.fetch(descriptor)
+
+        // Filter by keyword across multiple text fields (in-memory to avoid
+        // SwiftData #Predicate crashes with optional string fields)
         if !query.isEmpty {
-            let search = query
-            descriptor.predicate = #Predicate<Item> { item in
-                item.name.localizedStandardContains(search) ||
-                (item.itemDescription ?? "").localizedStandardContains(search) ||
-                (item.notes ?? "").localizedStandardContains(search) ||
-                (item.brand ?? "").localizedStandardContains(search) ||
-                (item.model ?? "").localizedStandardContains(search)
+            results = results.filter { item in
+                item.name.localizedCaseInsensitiveContains(query) ||
+                (item.itemDescription?.localizedCaseInsensitiveContains(query) ?? false) ||
+                (item.notes?.localizedCaseInsensitiveContains(query) ?? false) ||
+                (item.brand?.localizedCaseInsensitiveContains(query) ?? false) ||
+                (item.model?.localizedCaseInsensitiveContains(query) ?? false) ||
+                item.tags.contains(where: { $0.name.localizedCaseInsensitiveContains(query) })
             }
         }
-
-        var results = try context.fetch(descriptor)
 
         // Post-filter for structured filters
         if let house {
@@ -48,6 +50,44 @@ struct InventoryService {
         }
 
         return results
+    }
+
+    // MARK: - Search Houses
+
+    static func searchHouses(query: String, in context: ModelContext) throws -> [House] {
+        let descriptor = FetchDescriptor<House>(sortBy: [SortDescriptor(\House.name)])
+        let all = try context.fetch(descriptor)
+        guard !query.isEmpty else { return [] }
+        return all.filter { house in
+            house.name.localizedCaseInsensitiveContains(query) ||
+            (house.address?.localizedCaseInsensitiveContains(query) ?? false) ||
+            (house.notes?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    // MARK: - Search Locations
+
+    static func searchLocations(query: String, in context: ModelContext) throws -> [Location] {
+        let descriptor = FetchDescriptor<Location>(sortBy: [SortDescriptor(\Location.name)])
+        let all = try context.fetch(descriptor)
+        guard !query.isEmpty else { return [] }
+        return all.filter { location in
+            location.name.localizedCaseInsensitiveContains(query) ||
+            (location.notes?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    // MARK: - Search Containers
+
+    static func searchContainers(query: String, in context: ModelContext) throws -> [Container] {
+        let descriptor = FetchDescriptor<Container>(sortBy: [SortDescriptor(\Container.name)])
+        let all = try context.fetch(descriptor)
+        guard !query.isEmpty else { return [] }
+        return all.filter { container in
+            container.name.localizedCaseInsensitiveContains(query) ||
+            (container.containerType?.localizedCaseInsensitiveContains(query) ?? false) ||
+            (container.notes?.localizedCaseInsensitiveContains(query) ?? false)
+        }
     }
 
     // MARK: - Tag Helpers
@@ -84,6 +124,11 @@ struct InventoryService {
         return try context.fetch(descriptor)
     }
 
+    static func allItems(in context: ModelContext) throws -> [Item] {
+        let descriptor = FetchDescriptor<Item>(sortBy: [SortDescriptor(\Item.name)])
+        return try context.fetch(descriptor)
+    }
+
     static func topLevelContainers(in context: ModelContext) throws -> [Container] {
         let descriptor = FetchDescriptor<Container>(
             predicate: #Predicate<Container> { container in
@@ -92,5 +137,55 @@ struct InventoryService {
             sortBy: [SortDescriptor(\Container.name)]
         )
         return try context.fetch(descriptor)
+    }
+
+    // MARK: - QR Code Lookup
+
+    /// The result of parsing and looking up a QR code payload.
+    enum QRLookupResult {
+        case container(Container)
+        case item(Item)
+        case notFound
+        case invalidFormat
+    }
+
+    /// Parses a "baselit:type:slug" QR payload and looks up the matching entity.
+    static func lookupByQRPayload(
+        _ payload: String,
+        in context: ModelContext
+    ) throws -> QRLookupResult {
+        let parts = payload.split(separator: ":", maxSplits: 2).map(String.init)
+        guard parts.count == 3, parts[0] == "baselit" else {
+            return .invalidFormat
+        }
+
+        let type = parts[1]
+        let slug = parts[2]
+        let identifierQuery = slug.replacingOccurrences(of: "-", with: " ")
+
+        switch type {
+        case "container":
+            let descriptor = FetchDescriptor<Container>()
+            let all = try context.fetch(descriptor)
+            if let match = all.first(where: {
+                $0.identifier.caseInsensitiveCompare(identifierQuery) == .orderedSame
+            }) {
+                return .container(match)
+            }
+            return .notFound
+
+        case "item":
+            let descriptor = FetchDescriptor<Item>()
+            let all = try context.fetch(descriptor)
+            if let match = all.first(where: {
+                $0.identifier.caseInsensitiveCompare(identifierQuery) == .orderedSame
+            }) {
+                return .item(match)
+            }
+            return .notFound
+
+        default:
+            return .invalidFormat
+        }
     }
 }

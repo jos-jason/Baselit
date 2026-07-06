@@ -85,7 +85,7 @@ struct EditContainerView: View {
                     Picker("Inside Container", selection: $selectedParentContainer) {
                         Text("None (top level)").tag(nil as Container?)
                         ForEach(availableParentContainers) { c in
-                            Text(c.breadcrumbPath).tag(c as Container?)
+                            Text(c.name).tag(c as Container?)
                         }
                     }
                 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
 struct ItemFormView: View {
     @Environment(\.modelContext) private var modelContext
@@ -22,6 +23,10 @@ struct ItemFormView: View {
     @State private var condition = ""
     @State private var notes = ""
     @State private var selectedTags: [Tag] = []
+    @State private var selectedPhotos: [Photo] = []
+    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var showCamera = false
+    @State private var isProcessingPhoto = false
     @State private var showOptionalFields = false
 
     private var isEditing: Bool { editingItem != nil }
@@ -52,6 +57,39 @@ struct ItemFormView: View {
 
             Section("Tags") {
                 TagPicker(selectedTags: $selectedTags)
+            }
+
+            Section("Photos") {
+                if !selectedPhotos.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(selectedPhotos) { photo in
+                                FormPhotoThumbnail(photo: photo) {
+                                    selectedPhotos.removeAll { $0.persistentModelID == photo.persistentModelID }
+                                    modelContext.delete(photo)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                    Label(isProcessingPhoto ? "Adding…" : "Choose Photo", systemImage: "photo.badge.plus")
+                }
+                .disabled(isProcessingPhoto)
+                .onChange(of: photoPickerItem) { _, newItem in
+                    guard let newItem else { return }
+                    photoPickerItem = nil
+                    addFromPicker(item: newItem)
+                }
+
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button {
+                        showCamera = true
+                    } label: {
+                        Label("Take Photo", systemImage: "camera")
+                    }
+                }
             }
 
             Section("Notes") {
@@ -86,6 +124,14 @@ struct ItemFormView: View {
                 populateFrom(item)
             }
         }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraView { capturedImage in
+                let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
+                compressAndAddPhoto(data: data)
+            }
+            .ignoresSafeArea()
+        }
+    
     }
 
     private func populateFrom(_ item: Item) {
@@ -99,6 +145,7 @@ struct ItemFormView: View {
         condition = item.condition ?? ""
         notes = item.notes ?? ""
         selectedTags = item.tags
+        selectedPhotos = item.photos
         if !brand.isEmpty || !model.isEmpty || !condition.isEmpty {
             showOptionalFields = true
         }
@@ -134,8 +181,102 @@ struct ItemFormView: View {
         item.condition = condition.isEmpty ? nil : condition
         item.notes = notes.isEmpty ? nil : notes
         item.tags = selectedTags
+        item.photos = selectedPhotos
         item.updatedAt = .now
 
         dismiss()
     }
+
+    private func addFromPicker(item: PhotosPickerItem) {
+        isProcessingPhoto = true
+        Task {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                compressAndAddPhoto(data: data)
+            }
+            isProcessingPhoto = false
+        }
+    }
+
+    /// Compresses image data on a background thread, then adds the photo on the main actor.
+    private func compressAndAddPhoto(data: Data) {
+        let context = modelContext
+        Task.detached {
+            let compressed = compressImageData(data: data, maxDimension: 1200)
+            await MainActor.run {
+                let photo = Photo(imageData: compressed)
+                context.insert(photo)
+                selectedPhotos.append(photo)
+            }
+        }
+    }
 }
+/// Compresses image data to a max dimension. Safe to call from any thread.
+nonisolated private func compressImageData(data: Data, maxDimension: CGFloat) -> Data {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return data }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxDimension
+    ]
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return data
+    }
+    return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7) ?? data
+}
+
+/// Downsamples image data to a target pixel size. Safe to call from any thread.
+nonisolated private func downsampleForForm(data: Data, maxPixelSize: CGFloat) -> UIImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+    ]
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+    return UIImage(cgImage: cgImage)
+}
+
+/// Async thumbnail for the item form photo strip — avoids decoding full images on the main thread.
+private struct FormPhotoThumbnail: View {
+    let photo: Photo
+    var onDelete: () -> Void
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Rectangle()
+                    .fill(.fill.quaternary)
+            }
+        }
+        .frame(width: 80, height: 80)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .topTrailing) {
+            Button {
+                onDelete()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.white, .red)
+                    .font(.caption)
+            }
+            .offset(x: 4, y: -4)
+        }
+        .onAppear { loadImage() }
+    }
+
+    private func loadImage() {
+        guard let data = photo.imageData else { return }
+        let scale = UIScreen.main.scale  // capture on main thread
+        Task.detached {
+            let img = downsampleForForm(data: data, maxPixelSize: 80 * scale)
+            await MainActor.run { image = img }
+        }
+    }
+}
+

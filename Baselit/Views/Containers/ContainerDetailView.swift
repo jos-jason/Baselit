@@ -9,14 +9,65 @@ struct ContainerDetailView: View {
     @State private var newSubContainerName = ""
     @State private var showAddItem = false
     @State private var showEditContainer = false
-    @State private var editedName = ""
     @State private var showDeleteConfirmation = false
     @State private var showMoveContainer = false
+    @State private var showCamera = false
+    @State private var showShareSheet = false
+    @State private var showBubbleGrid = false
+
+    /// Recursively collect all items and sub-containers within this container.
+    private var allBubbleEntries: [BubbleEntry] {
+        var entries: [BubbleEntry] = []
+
+        func collect(_ c: Container) {
+            for item in c.items {
+                entries.append(BubbleEntry(
+                    id: "item-\(item.persistentModelID.hashValue)",
+                    name: item.name,
+                    photos: item.photos,
+                    placeholderIcon: "shippingbox",
+                    destination: .item(item)
+                ))
+            }
+            for sub in c.subContainers {
+                entries.append(BubbleEntry(
+                    id: "container-\(sub.persistentModelID.hashValue)",
+                    name: sub.name,
+                    photos: sub.photos,
+                    placeholderIcon: "archivebox",
+                    destination: .container(sub)
+                ))
+                collect(sub)
+            }
+        }
+
+        collect(container)
+        return entries
+    }
 
     var body: some View {
         List {
-            // Breadcrumb
+            // Photos
+            Section("Photos") {
+                PhotoGalleryView(
+                    photos: container.photos,
+                    onAdd: { photo in
+                        container.photos.append(photo)
+                    },
+                    onDelete: { photo in
+                        container.photos.removeAll { $0.persistentModelID == photo.persistentModelID }
+                    },
+                    showCamera: $showCamera
+                )
+            }
+
+            // Identifier & Breadcrumb
             Section {
+                LabeledContent("ID") {
+                    Text(container.identifier)
+                        .fontDesign(.monospaced)
+                        .foregroundStyle(.secondary)
+                }
                 BreadcrumbView(components: container.breadcrumbComponents)
             }
 
@@ -43,11 +94,41 @@ struct ContainerDetailView: View {
             }
 
             if container.subContainers.isEmpty && container.items.isEmpty {
-                EmptyStateView(
-                    icon: "tray",
-                    title: "Empty Container",
-                    message: "Add items or sub-containers to this container."
-                )
+                ContentUnavailableView {
+                    Label("Empty Container", systemImage: "tray")
+                } description: {
+                    Text("Add items or sub-containers to this container.")
+                } actions: {
+                    HStack(spacing: 24) {
+                        Button {
+                            showAddSubContainer = true
+                        } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: "archivebox.fill")
+                                    .font(.title3)
+                                    .frame(width: 44, height: 44)
+                                    .background(.fill.tertiary, in: Circle())
+                                Text("Add Container")
+                                    .font(.caption)
+                            }
+                        }
+                        Button {
+                            showAddItem = true
+                        } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: "shippingbox.fill")
+                                    .font(.title3)
+                                    .frame(width: 44, height: 44)
+                                    .background(.fill.tertiary, in: Circle())
+                                Text("Add Item")
+                                    .font(.caption)
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
 
             if let notes = container.notes, !notes.isEmpty {
@@ -55,8 +136,24 @@ struct ContainerDetailView: View {
                     Text(notes)
                 }
             }
+
+            if !allBubbleEntries.isEmpty {
+                Section {
+                    Button {
+                        showBubbleGrid = true
+                    } label: {
+                        Label("View All Items & Containers", systemImage: "circle.hexagongrid")
+                    }
+                }
+            }
         }
         .navigationTitle(container.name)
+        .fullScreenCover(isPresented: $showBubbleGrid) {
+            BubbleGridFullScreenView(
+                title: container.name,
+                entries: allBubbleEntries
+            )
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -72,7 +169,6 @@ struct ContainerDetailView: View {
                     }
                     Divider()
                     Button {
-                        editedName = container.name
                         showEditContainer = true
                     } label: {
                         Label("Edit Container", systemImage: "pencil")
@@ -81,6 +177,11 @@ struct ContainerDetailView: View {
                         showMoveContainer = true
                     } label: {
                         Label("Move Container", systemImage: "arrow.right")
+                    }
+                    Button {
+                        showShareSheet = true
+                    } label: {
+                        Label("Print Label", systemImage: "qrcode")
                     }
                     Divider()
                     Button(role: .destructive) {
@@ -104,15 +205,9 @@ struct ContainerDetailView: View {
         } message: {
             Text("Enter a name for the sub-container.")
         }
-        .alert("Edit Container", isPresented: $showEditContainer) {
-            TextField("Container name", text: $editedName)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") {
-                let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    container.name = trimmed
-                    container.updatedAt = .now
-                }
+        .sheet(isPresented: $showEditContainer) {
+            NavigationStack {
+                EditContainerView(container: container)
             }
         }
         .confirmationDialog(
@@ -148,6 +243,30 @@ struct ContainerDetailView: View {
             NavigationStack {
                 MoveContainerView(container: container)
             }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraView { capturedImage in
+                let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
+                let context = modelContext
+                Task.detached {
+                    let compressed = compressImageForGallery(data: data, maxDimension: 1200)
+                    await MainActor.run {
+                        let photo = Photo(imageData: compressed)
+                        context.insert(photo)
+                        container.photos.append(photo)
+                    }
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(activityItems: [
+                LabelGenerator.generateLabel(
+                    name: container.name,
+                    identifier: container.identifier,
+                    type: "container"
+                )
+            ])
         }
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import Compression
 
 enum BackupImportService {
 
@@ -57,7 +58,7 @@ enum BackupImportService {
         // Build sets of existing identifiers/names
         let existingHouseNames = Set(try InventoryService.allHouses(in: context).map { $0.name.lowercased() })
         let existingLocations = try fetchAllLocations(in: context)
-        let existingLocationKeys = Set(existingLocations.map { locationKey(name: $0.name, houseName: $0.house?.name) })
+        let existingLocationKeys = Set(existingLocations.map { locationKey(name: $0.name, houseName: $0.resolvedHouse?.name, parentLocationName: $0.parentLocation?.name) })
         let existingContainerIDs = Set(try InventoryService.allContainers(in: context).map { $0.identifier.lowercased() })
         let existingItemIDs = Set(try InventoryService.allItems(in: context).map { $0.identifier.lowercased() })
         let existingTagNames = Set(try InventoryService.allTags(in: context).map { $0.name.lowercased() })
@@ -67,8 +68,13 @@ enum BackupImportService {
         let skippedHouseIDs = Set(manifest.houses.filter { existingHouseNames.contains($0.name.lowercased()) }.map(\.exportID))
 
         let locationsToImport = manifest.locations.filter { loc in
-            let houseName = manifest.houses.first(where: { $0.exportID == loc.houseExportID })?.name
-            return !existingLocationKeys.contains(locationKey(name: loc.name, houseName: houseName))
+            let houseName = loc.houseExportID.flatMap { hid in manifest.houses.first(where: { $0.exportID == hid })?.name }
+                ?? loc.parentLocationExportID.flatMap { pid in
+                    // Walk up to find house for sub-locations
+                    resolveHouseName(for: pid, in: manifest)
+                }
+            let parentName = loc.parentLocationExportID.flatMap { pid in manifest.locations.first(where: { $0.exportID == pid })?.name }
+            return !existingLocationKeys.contains(locationKey(name: loc.name, houseName: houseName, parentLocationName: parentName))
         }
         let skippedLocationIDs = Set(manifest.locations.map(\.exportID)).subtracting(locationsToImport.map(\.exportID))
 
@@ -143,13 +149,16 @@ enum BackupImportService {
             }
         }
 
-        // Locations: match by name + house name
+        // Locations: match by name + house name + parent location name
         let existingLocations = try fetchAllLocations(in: context)
         for exportLocation in manifest.locations {
-            let exportHouseName = manifest.houses.first(where: { $0.exportID == exportLocation.houseExportID })?.name
+            let exportHouseName = exportLocation.houseExportID.flatMap { hid in manifest.houses.first(where: { $0.exportID == hid })?.name }
+                ?? resolveHouseName(for: exportLocation.exportID, in: manifest)
+            let exportParentName = exportLocation.parentLocationExportID.flatMap { pid in manifest.locations.first(where: { $0.exportID == pid })?.name }
             if let existing = existingLocations.first(where: {
                 $0.name.lowercased() == exportLocation.name.lowercased() &&
-                $0.house?.name.lowercased() == exportHouseName?.lowercased()
+                $0.resolvedHouse?.name.lowercased() == exportHouseName?.lowercased() &&
+                $0.parentLocation?.name.lowercased() == exportParentName?.lowercased()
             }) {
                 let diffs = diffLocation(existing: existing, incoming: exportLocation)
                 if !diffs.isEmpty {
@@ -250,10 +259,13 @@ enum BackupImportService {
             }
         }
         for exportLoc in manifest.locations {
-            let exportHouseName = manifest.houses.first(where: { $0.exportID == exportLoc.houseExportID })?.name
+            let exportHouseName = exportLoc.houseExportID.flatMap { hid in manifest.houses.first(where: { $0.exportID == hid })?.name }
+                ?? resolveHouseName(for: exportLoc.exportID, in: manifest)
+            let exportParentName = exportLoc.parentLocationExportID.flatMap { pid in manifest.locations.first(where: { $0.exportID == pid })?.name }
             if let existing = existingLocations.first(where: {
                 $0.name.lowercased() == exportLoc.name.lowercased() &&
-                $0.house?.name.lowercased() == exportHouseName?.lowercased()
+                $0.resolvedHouse?.name.lowercased() == exportHouseName?.lowercased() &&
+                $0.parentLocation?.name.lowercased() == exportParentName?.lowercased()
             }) {
                 locationMap[exportLoc.exportID] = existing
             }
@@ -315,8 +327,9 @@ enum BackupImportService {
             }
         }
 
-        // Import Locations
-        for exportLoc in manifest.locations {
+        // Import Locations (topologically sorted)
+        let sortedLocations = sortLocationsTopologically(manifest.locations)
+        for exportLoc in sortedLocations {
             if conflictExportIDs.contains(exportLoc.exportID) {
                 let resolution = resolutionByExportID[exportLoc.exportID] ?? .keepExisting
                 switch resolution {
@@ -326,12 +339,14 @@ enum BackupImportService {
                     if let existing = locationMap[exportLoc.exportID] {
                         existing.name = exportLoc.name
                         existing.notes = exportLoc.notes
+                        existing.parentLocation = exportLoc.parentLocationExportID.flatMap { locationMap[$0] }
                         existing.updatedAt = .now
                         result.locationsImported += 1
                     }
                 case .keepBoth:
                     let house = exportLoc.houseExportID.flatMap { houseMap[$0] }
-                    let location = Location(name: exportLoc.name + " (Imported)", house: house ?? House(name: "Unknown"), notes: exportLoc.notes)
+                    let parentLocation = exportLoc.parentLocationExportID.flatMap { locationMap[$0] }
+                    let location = Location(name: exportLoc.name + " (Imported)", house: house, parentLocation: parentLocation, notes: exportLoc.notes)
                     location.createdAt = exportLoc.createdAt
                     context.insert(location)
                     locationMap[exportLoc.exportID] = location
@@ -339,13 +354,12 @@ enum BackupImportService {
                 }
             } else if locationMap[exportLoc.exportID] == nil {
                 let house = exportLoc.houseExportID.flatMap { houseMap[$0] }
-                if let house {
-                    let location = Location(name: exportLoc.name, house: house, notes: exportLoc.notes)
-                    location.createdAt = exportLoc.createdAt
-                    context.insert(location)
-                    locationMap[exportLoc.exportID] = location
-                    result.locationsImported += 1
-                }
+                let parentLocation = exportLoc.parentLocationExportID.flatMap { locationMap[$0] }
+                let location = Location(name: exportLoc.name, house: house, parentLocation: parentLocation, notes: exportLoc.notes)
+                location.createdAt = exportLoc.createdAt
+                context.insert(location)
+                locationMap[exportLoc.exportID] = location
+                result.locationsImported += 1
             } else {
                 result.skipped += 1
             }
@@ -509,16 +523,16 @@ enum BackupImportService {
             result.housesImported += 1
         }
 
-        // Locations
-        for exportLoc in manifest.locations {
+        // Locations (topologically sorted)
+        let sortedLocations = sortLocationsTopologically(manifest.locations)
+        for exportLoc in sortedLocations {
             let house = exportLoc.houseExportID.flatMap { houseMap[$0] }
-            if let house {
-                let location = Location(name: exportLoc.name, house: house, notes: exportLoc.notes)
-                location.createdAt = exportLoc.createdAt
-                context.insert(location)
-                locationMap[exportLoc.exportID] = location
-                result.locationsImported += 1
-            }
+            let parentLocation = exportLoc.parentLocationExportID.flatMap { locationMap[$0] }
+            let location = Location(name: exportLoc.name, house: house, parentLocation: parentLocation, notes: exportLoc.notes)
+            location.createdAt = exportLoc.createdAt
+            context.insert(location)
+            locationMap[exportLoc.exportID] = location
+            result.locationsImported += 1
         }
 
         // Containers (topologically sorted)
@@ -647,6 +661,27 @@ enum BackupImportService {
     }
 
     // MARK: - Private: Topological Sort
+
+    private static func sortLocationsTopologically(_ locations: [ExportLocation]) -> [ExportLocation] {
+        var sorted: [ExportLocation] = []
+        var remaining = locations
+        var createdIDs: Set<UUID> = []
+
+        while !remaining.isEmpty {
+            let batch = remaining.filter { loc in
+                loc.parentLocationExportID == nil || createdIDs.contains(loc.parentLocationExportID!)
+            }
+            guard !batch.isEmpty else {
+                // Circular reference — just append remaining
+                sorted.append(contentsOf: remaining)
+                break
+            }
+            sorted.append(contentsOf: batch)
+            createdIDs.formUnion(batch.map(\.exportID))
+            remaining.removeAll { loc in createdIDs.contains(loc.exportID) }
+        }
+        return sorted
+    }
 
     private static func sortContainersTopologically(_ containers: [ExportContainer]) -> [ExportContainer] {
         var sorted: [ExportContainer] = []
@@ -779,8 +814,21 @@ enum BackupImportService {
 
     // MARK: - Private: Helpers
 
-    private static func locationKey(name: String, houseName: String?) -> String {
-        "\(houseName?.lowercased() ?? "")||\(name.lowercased())"
+    /// Walk up the location parent chain in the manifest to find the house name
+    private static func resolveHouseName(for locationExportID: UUID, in manifest: BackupManifest) -> String? {
+        var currentID: UUID? = locationExportID
+        while let id = currentID {
+            guard let loc = manifest.locations.first(where: { $0.exportID == id }) else { return nil }
+            if let houseID = loc.houseExportID {
+                return manifest.houses.first(where: { $0.exportID == houseID })?.name
+            }
+            currentID = loc.parentLocationExportID
+        }
+        return nil
+    }
+
+    private static func locationKey(name: String, houseName: String?, parentLocationName: String? = nil) -> String {
+        "\(houseName?.lowercased() ?? "")||\(parentLocationName?.lowercased() ?? "")||\(name.lowercased())"
     }
 
     private static func fetchAllLocations(in context: ModelContext) throws -> [Location] {
@@ -812,10 +860,13 @@ enum BackupImportService {
             }
         }
         for exportLoc in fullManifest.locations {
-            let exportHouseName = fullManifest.houses.first(where: { $0.exportID == exportLoc.houseExportID })?.name
+            let exportHouseName = exportLoc.houseExportID.flatMap { hid in fullManifest.houses.first(where: { $0.exportID == hid })?.name }
+                ?? resolveHouseName(for: exportLoc.exportID, in: fullManifest)
+            let exportParentName = exportLoc.parentLocationExportID.flatMap { pid in fullManifest.locations.first(where: { $0.exportID == pid })?.name }
             if let existing = existingLocations.first(where: {
                 $0.name.lowercased() == exportLoc.name.lowercased() &&
-                $0.house?.name.lowercased() == exportHouseName?.lowercased()
+                $0.resolvedHouse?.name.lowercased() == exportHouseName?.lowercased() &&
+                $0.parentLocation?.name.lowercased() == exportParentName?.lowercased()
             }) {
                 maps.locationMap[exportLoc.exportID] = existing
             }
@@ -839,28 +890,6 @@ enum BackupImportService {
     // MARK: - Private: ZIP Extraction
 
     private static func extractZIP(at zipURL: URL, to destination: URL) throws {
-        // Use Process-free extraction via spawning an unzip coordination
-        // On iOS, we use a minimal approach: copy and use FileManager coordination
-        let fm = FileManager.default
-
-        // Try using the built-in unzip capability via NSFileCoordinator
-        // For reading a ZIP, we coordinate with intent to read the contents
-        var coordinatorError: NSError?
-        var extractionError: Error?
-
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(
-            readingItemAt: zipURL,
-            options: .forUploading,
-            error: &coordinatorError
-        ) { actualURL in
-            // This gives us the zip again; we need a different approach
-            // Use a manual approach: read the zip data and find the JSON within
-        }
-
-        // Fallback: Manual minimal ZIP extraction using built-in capabilities
-        // Since NSFileCoordinator doesn't directly unzip, we'll use a simple
-        // approach that reads the ZIP file format directly
         try manualUnzip(zipURL: zipURL, to: destination)
     }
 
@@ -964,15 +993,13 @@ enum BackupImportService {
 
     /// Decompress deflate data using the Compression framework
     private static func decompressDeflate(_ data: Data, expectedSize: Int) -> Data? {
-        // Use raw deflate decompression
         let bufferSize = max(expectedSize, 1024)
         let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { destinationBuffer.deallocate() }
 
-        let decompressedSize = data.withUnsafeBytes { sourceBytes -> Int in
-            guard let sourcePointer = sourceBytes.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                return 0
-            }
+        let decompressedSize = data.withUnsafeBytes { (sourceBytes: UnsafeRawBufferPointer) -> Int in
+            guard let baseAddress = sourceBytes.baseAddress else { return 0 }
+            let sourcePointer = baseAddress.bindMemory(to: UInt8.self, capacity: data.count)
             return compression_decode_buffer(
                 destinationBuffer, bufferSize,
                 sourcePointer, data.count,

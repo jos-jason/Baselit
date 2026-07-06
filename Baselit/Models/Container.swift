@@ -9,6 +9,11 @@ final class Container {
     var createdAt: Date
     var updatedAt: Date
 
+    /// A persistent two-word identifier (e.g. "Bright Falcon") assigned at creation.
+    /// This never changes, even when other container data is edited.
+    @Attribute(originalName: "identifier")
+    var identifier: String = ""
+
     // Self-referential: parent container (nil = top-level)
     var parentContainer: Container?
 
@@ -21,12 +26,16 @@ final class Container {
     @Relationship(deleteRule: .nullify, inverse: \Item.container)
     var items: [Item] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \Photo.container)
+    var photos: [Photo] = []
+
     init(name: String, containerType: String? = nil, location: Location? = nil, parentContainer: Container? = nil, notes: String? = nil) {
         self.name = name
         self.containerType = containerType
         self.location = location
         self.parentContainer = parentContainer
         self.notes = notes
+        self.identifier = IdentifierGenerator.generate()
         self.createdAt = .now
         self.updatedAt = .now
     }
@@ -39,7 +48,7 @@ final class Container {
 
     /// Walk up to find the house
     var resolvedHouse: House? {
-        resolvedLocation?.house
+        resolvedLocation?.resolvedHouse
     }
 
     /// Compute the breadcrumb path components
@@ -51,10 +60,8 @@ final class Container {
             current = parent.parentContainer
         }
         if let loc = resolvedLocation {
-            components.insert(loc.name, at: 0)
-            if let house = loc.house {
-                components.insert(house.name, at: 0)
-            }
+            let locComponents = loc.breadcrumbComponents
+            components.insert(contentsOf: locComponents, at: 0)
         }
         return components
     }

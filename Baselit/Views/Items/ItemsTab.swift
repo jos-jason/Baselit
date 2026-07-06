@@ -10,6 +10,7 @@ enum ItemSortOrder: String, CaseIterable {
 enum ItemsFilter: Hashable {
     case all            // Items + Containers
     case itemsOnly      // Items only (no containers)
+    case uncontained    // Items & containers not inside a container
     case category(ItemCategory) // Specific category (items only)
 }
 
@@ -18,6 +19,10 @@ struct ItemsTab: View {
     @Query(sort: \Container.name) private var allContainers: [Container]
     @State private var sortOrder: ItemSortOrder = .name
     @State private var activeFilter: ItemsFilter = .all
+    @State private var selection: Set<String> = []
+    @State private var editMode: EditMode = .inactive
+    @State private var showBatchMoveSheet = false
+    @State private var showAddItem = false
 
     /// Unified row model for the list
     private enum ListEntry: Identifiable {
@@ -61,6 +66,9 @@ struct ItemsTab: View {
             result = allItems.map { .item($0) } + allContainers.map { .container($0) }
         case .itemsOnly:
             result = allItems.map { .item($0) }
+        case .uncontained:
+            result = allItems.filter { $0.container == nil }.map { .item($0) }
+                   + allContainers.filter { $0.parentContainer == nil }.map { .container($0) }
         case .category(let category):
             result = allItems.filter { $0.category == category }.map { .item($0) }
         }
@@ -85,6 +93,7 @@ struct ItemsTab: View {
         switch activeFilter {
         case .all: return "All (Items & Containers)"
         case .itemsOnly: return "Items Only"
+        case .uncontained: return "Not in a Container"
         case .category(let cat): return cat.displayName
         }
     }
@@ -99,7 +108,7 @@ struct ItemsTab: View {
                         message: "Add items from a location or container to start tracking."
                     )
                 } else {
-                    List(entries) { entry in
+                    List(entries, selection: $selection) { entry in
                         switch entry {
                         case .item(let item):
                             NavigationLink(value: item) {
@@ -109,6 +118,20 @@ struct ItemsTab: View {
                             NavigationLink(value: container) {
                                 ContainerRow(container: container)
                             }
+                        }
+                    }
+                    .environment(\.editMode, $editMode)
+                    .safeAreaInset(edge: .bottom) {
+                        if editMode == .active {
+                            Button {
+                                showBatchMoveSheet = true
+                            } label: {
+                                Label("Move \(selection.count) to Container…", systemImage: "arrow.right")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .padding()
+                            .disabled(selection.isEmpty)
                         }
                     }
                 }
@@ -121,6 +144,14 @@ struct ItemsTab: View {
                 ContainerDetailView(container: container)
             }
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showAddItem = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Picker("Sort by", selection: $sortOrder) {
@@ -146,6 +177,14 @@ struct ItemsTab: View {
                                     if case .itemsOnly = activeFilter { Image(systemName: "checkmark") }
                                 }
                             }
+                            Button {
+                                activeFilter = .uncontained
+                            } label: {
+                                HStack {
+                                    Text("Not in a Container")
+                                    if case .uncontained = activeFilter { Image(systemName: "checkmark") }
+                                }
+                            }
                             Divider()
                             ForEach(ItemCategory.allCases) { cat in
                                 Button {
@@ -161,10 +200,70 @@ struct ItemsTab: View {
                             }
                         }
                     } label: {
-                        Image(systemName: activeFilter is ItemsFilter ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle")
+                        Image(systemName: {
+                            if case .all = activeFilter { return "line.3.horizontal.decrease.circle" }
+                            return "line.3.horizontal.decrease.circle.fill"
+                        }())
+                    }
+                }
+
+                ToolbarItem(placement: .topBarLeading) {
+                    if !isEmpty {
+                        Button(editMode == .active ? "Done" : "Select") {
+                            withAnimation {
+                                if editMode == .active {
+                                    editMode = .inactive
+                                    selection.removeAll()
+                                } else {
+                                    editMode = .active
+                                }
+                            }
+                        }
+                    }
+                }
+
+            
+            }
+            .sheet(isPresented: $showBatchMoveSheet) {
+                NavigationStack {
+                    BatchMoveView(
+                        items: selectedItems,
+                        containers: selectedContainers
+                    ) {
+                        withAnimation {
+                            editMode = .inactive
+                            selection.removeAll()
+                        }
                     }
                 }
             }
+            .sheet(isPresented: $showAddItem) {
+                NavigationStack {
+                    ItemFormView()
+                }
+            }
+        }
+    }
+
+    // MARK: - Selection Helpers
+
+    private var selectedItems: [Item] {
+        let ids = selection
+        return entries.compactMap { entry in
+            if case .item(let item) = entry, ids.contains(entry.id) {
+                return item
+            }
+            return nil
+        }
+    }
+
+    private var selectedContainers: [Container] {
+        let ids = selection
+        return entries.compactMap { entry in
+            if case .container(let container) = entry, ids.contains(entry.id) {
+                return container
+            }
+            return nil
         }
     }
 }

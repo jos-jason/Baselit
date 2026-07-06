@@ -8,12 +8,85 @@ struct HouseDetailView: View {
     @State private var newLocationName = ""
     @State private var showEditHouse = false
     @State private var editedHouseName = ""
+    @State private var showCamera = false
+    @State private var showBubbleGrid = false
+
+    private var topLevelLocations: [Location] {
+        house.locations
+            .filter { $0.parentLocation == nil }
+            .sorted(by: { $0.name < $1.name })
+    }
+
+    /// Recursively collect all items and containers across all locations in this house.
+    private var allBubbleEntries: [BubbleEntry] {
+        var entries: [BubbleEntry] = []
+
+        func collectFromContainer(_ container: Container) {
+            entries.append(BubbleEntry(
+                id: "container-\(container.persistentModelID.hashValue)",
+                name: container.name,
+                photos: container.photos,
+                placeholderIcon: "archivebox",
+                destination: .container(container)
+            ))
+            for item in container.items {
+                entries.append(BubbleEntry(
+                    id: "item-\(item.persistentModelID.hashValue)",
+                    name: item.name,
+                    photos: item.photos,
+                    placeholderIcon: "shippingbox",
+                    destination: .item(item)
+                ))
+            }
+            for sub in container.subContainers {
+                collectFromContainer(sub)
+            }
+        }
+
+        func collectFromLocation(_ location: Location) {
+            for item in location.items {
+                entries.append(BubbleEntry(
+                    id: "item-\(item.persistentModelID.hashValue)",
+                    name: item.name,
+                    photos: item.photos,
+                    placeholderIcon: "shippingbox",
+                    destination: .item(item)
+                ))
+            }
+            for container in location.containers {
+                collectFromContainer(container)
+            }
+            for sub in location.subLocations {
+                collectFromLocation(sub)
+            }
+        }
+
+        for location in house.locations {
+            collectFromLocation(location)
+        }
+
+        return entries
+    }
 
     var body: some View {
         List {
-            if !house.locations.isEmpty {
+            // Photos
+            Section("Photos") {
+                PhotoGalleryView(
+                    photos: house.photos,
+                    onAdd: { photo in
+                        house.photos.append(photo)
+                    },
+                    onDelete: { photo in
+                        house.photos.removeAll { $0.persistentModelID == photo.persistentModelID }
+                    },
+                    showCamera: $showCamera
+                )
+            }
+
+            if !topLevelLocations.isEmpty {
                 Section("Locations") {
-                    ForEach(house.locations.sorted(by: { $0.name < $1.name })) { location in
+                    ForEach(topLevelLocations) { location in
                         NavigationLink(value: location) {
                             LocationRow(location: location)
                         }
@@ -21,11 +94,21 @@ struct HouseDetailView: View {
                     .onDelete(perform: deleteLocations)
                 }
             } else {
-                EmptyStateView(
-                    icon: "mappin",
-                    title: "No Locations",
-                    message: "Add rooms, closets, or areas within this house."
-                )
+                ContentUnavailableView {
+                    Label("No Locations", systemImage: "mappin")
+                } description: {
+                    Text("Add rooms, closets, or areas within this house.")
+                } actions: {
+                    Button {
+                        showAddLocation = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.title2)
+                            .padding(8)
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
+                }
             }
 
             if let address = house.address, !address.isEmpty {
@@ -40,8 +123,24 @@ struct HouseDetailView: View {
                         .font(.body)
                 }
             }
+
+            if !allBubbleEntries.isEmpty {
+                Section {
+                    Button {
+                        showBubbleGrid = true
+                    } label: {
+                        Label("View All Items & Containers", systemImage: "circle.hexagongrid")
+                    }
+                }
+            }
         }
         .navigationTitle(house.name)
+        .fullScreenCover(isPresented: $showBubbleGrid) {
+            BubbleGridFullScreenView(
+                title: house.name,
+                entries: allBubbleEntries
+            )
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -83,6 +182,21 @@ struct HouseDetailView: View {
                 }
             }
         }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraView { capturedImage in
+                let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
+                let context = modelContext
+                Task.detached {
+                    let compressed = compressImageForGallery(data: data, maxDimension: 1200)
+                    await MainActor.run {
+                        let photo = Photo(imageData: compressed)
+                        context.insert(photo)
+                        house.photos.append(photo)
+                    }
+                }
+            }
+            .ignoresSafeArea()
+        }
     }
 
     private func addLocation() {
@@ -94,9 +208,8 @@ struct HouseDetailView: View {
     }
 
     private func deleteLocations(at offsets: IndexSet) {
-        let sorted = house.locations.sorted(by: { $0.name < $1.name })
         for index in offsets {
-            modelContext.delete(sorted[index])
+            modelContext.delete(topLevelLocations[index])
         }
     }
 }
@@ -109,6 +222,9 @@ private struct LocationRow: View {
             Text(location.name)
                 .font(.headline)
             HStack(spacing: 12) {
+                if !location.subLocations.isEmpty {
+                    Label("\(location.subLocations.count) sub-locations", systemImage: "mappin")
+                }
                 Label("\(location.containers.count) containers", systemImage: "archivebox")
                 Label("\(location.items.count) items", systemImage: "shippingbox")
             }

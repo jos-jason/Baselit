@@ -32,6 +32,7 @@ struct ExportLocation: Codable {
     let createdAt: Date
     let updatedAt: Date
     let houseExportID: UUID?
+    let parentLocationExportID: UUID?
 }
 
 struct ExportContainer: Codable {

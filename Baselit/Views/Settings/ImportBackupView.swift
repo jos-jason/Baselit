@@ -354,20 +354,17 @@ struct ImportBackupView: View {
         progressMessage = "Analyzing conflicts..."
         importStage = .importing
 
-        Task.detached {
+        let context = modelContext
+        Task {
             do {
-                let detected = try BackupImportService.detectConflicts(manifest: manifest, context: modelContext)
-                await MainActor.run {
-                    conflicts = detected
-                    isProcessing = false
-                    importStage = .reviewConflicts
-                }
+                let detected = try BackupImportService.detectConflicts(manifest: manifest, context: context)
+                conflicts = detected
+                isProcessing = false
+                importStage = .reviewConflicts
             } catch {
-                await MainActor.run {
-                    errorMessage = "Failed to detect conflicts: \(error.localizedDescription)"
-                    isProcessing = false
-                    importStage = .chooseMode
-                }
+                errorMessage = "Failed to detect conflicts: \(error.localizedDescription)"
+                isProcessing = false
+                importStage = .chooseMode
             }
         }
     }
@@ -379,7 +376,10 @@ struct ImportBackupView: View {
         importStage = .importing
         progressMessage = "Importing data..."
 
-        Task.detached {
+        let context = modelContext
+        let currentResolutions = resolutions
+        let currentConflicts = conflicts
+        Task {
             do {
                 let result: ImportResult
                 switch mode {
@@ -387,35 +387,31 @@ struct ImportBackupView: View {
                     result = try BackupImportService.importReplaceAll(
                         manifest: manifest,
                         extractedDir: extractedDir,
-                        context: modelContext
+                        context: context
                     )
                 case .importNonDuplicates:
                     result = try BackupImportService.importNonDuplicates(
                         manifest: manifest,
                         extractedDir: extractedDir,
-                        context: modelContext
+                        context: context
                     )
                 case .reviewConflicts:
                     result = try BackupImportService.importWithResolutions(
                         manifest: manifest,
                         extractedDir: extractedDir,
-                        resolutions: resolutions,
-                        conflicts: conflicts,
-                        context: modelContext
+                        resolutions: currentResolutions,
+                        conflicts: currentConflicts,
+                        context: context
                     )
                 }
 
-                await MainActor.run {
-                    importResult = result
-                    isProcessing = false
-                    importStage = .complete
-                }
+                importResult = result
+                isProcessing = false
+                importStage = .complete
             } catch {
-                await MainActor.run {
-                    errorMessage = "Import failed: \(error.localizedDescription)"
-                    isProcessing = false
-                    importStage = .complete
-                }
+                errorMessage = "Import failed: \(error.localizedDescription)"
+                isProcessing = false
+                importStage = .complete
             }
         }
     }
@@ -488,7 +484,7 @@ private struct ConflictRow: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: iconForType(conflict.entityType))
-                    .foregroundStyle(.accentColor)
+                    .foregroundStyle(.tint)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(conflict.entityName)

@@ -1,10 +1,13 @@
 import SwiftUI
+import UIKit
 
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showBatchLabels = false
     @State private var showExportBackup = false
     @State private var showImportBackup = false
+    @State private var showBulkCaptureItems = false
+    @State private var showBulkCaptureContainers = false
 
     var body: some View {
         NavigationStack {
@@ -14,6 +17,22 @@ struct SettingsSheet: View {
                         showBatchLabels = true
                     } label: {
                         Label("Print Labels", systemImage: "printer")
+                    }
+                }
+
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Section("Bulk Capture") {
+                        Button {
+                            showBulkCaptureItems = true
+                        } label: {
+                            Label("Capture Items", systemImage: "shippingbox")
+                        }
+
+                        Button {
+                            showBulkCaptureContainers = true
+                        } label: {
+                            Label("Capture Containers", systemImage: "archivebox")
+                        }
                     }
                 }
 
@@ -46,6 +65,12 @@ struct SettingsSheet: View {
             }
             .sheet(isPresented: $showImportBackup) {
                 ImportBackupView()
+            }
+            .fullScreenCover(isPresented: $showBulkCaptureItems) {
+                BulkCaptureView(mode: .items)
+            }
+            .fullScreenCover(isPresented: $showBulkCaptureContainers) {
+                BulkCaptureView(mode: .containers)
             }
         }
     }

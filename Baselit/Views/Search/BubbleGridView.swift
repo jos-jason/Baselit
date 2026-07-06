@@ -23,13 +23,13 @@ struct BubbleGridView: View {
     let onSelect: (BubbleEntry.Destination) -> Void
 
     /// The full size of each bubble at maximum scale (at the center of view).
-    private let baseBubbleSize: CGFloat = 78
+    private let baseBubbleSize: CGFloat = 88
     /// The smallest a bubble can shrink to at the far edges.
     private let minScale: CGFloat = 0.55
     /// How quickly bubbles shrink toward the edges. Larger = shrinks faster.
     private let falloffRadius: CGFloat = 220
     /// Horizontal distance between adjacent bubble centers.
-    private let cellSpacing: CGFloat = 84
+    private let cellSpacing: CGFloat = 104
 
     /// Accumulated drag offset for panning the grid.
     @State private var offset: CGSize = .zero
@@ -58,18 +58,16 @@ struct BubbleGridView: View {
                     let scale = bubbleScale(distance: distance)
                     let bubbleSize = baseBubbleSize * scale
 
-                    if posX > -baseBubbleSize && posX < geometry.size.width + baseBubbleSize &&
-                       posY > -baseBubbleSize && posY < geometry.size.height + baseBubbleSize {
-                        BubbleView(
-                            entry: entry,
-                            size: bubbleSize,
-                            maxSize: baseBubbleSize
-                        )
-                        .position(x: posX, y: posY)
-                        .zIndex(Double(1000 - Int(distance)))
-                        .onTapGesture {
-                            onSelect(entry.destination)
-                        }
+                    BubbleView(
+                        entry: entry,
+                        size: bubbleSize,
+                        maxSize: baseBubbleSize
+                    )
+                    .position(x: posX, y: posY)
+                    .zIndex(Double(1000 - Int(distance)))
+                    .opacity(bubbleOpacity(distance: distance))
+                    .onTapGesture {
+                        onSelect(entry.destination)
                     }
                 }
             }
@@ -91,13 +89,14 @@ struct BubbleGridView: View {
                         )
                     }
                     .onEnded { _ in
+                        // Merge drag into offset, then animate back smoothly
                         offset.width += dragOffset.width
                         offset.height += dragOffset.height
                         dragOffset = .zero
                         isDragging = false
 
-                        // Always spring back to center
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                        // Smooth, calm spring back to center
+                        withAnimation(.spring(response: 0.7, dampingFraction: 0.9)) {
                             offset = .zero
                         }
                     }
@@ -116,6 +115,15 @@ struct BubbleGridView: View {
         return value > 0 ? dampened : -dampened
     }
 
+    /// Fade out bubbles that are very far from center so they don't just hard-clip.
+    private func bubbleOpacity(distance: CGFloat) -> Double {
+        let fadeStart = falloffRadius * 1.3
+        let fadeEnd = falloffRadius * 2.0
+        if distance <= fadeStart { return 1.0 }
+        if distance >= fadeEnd { return 0.0 }
+        return Double((fadeEnd - distance) / (fadeEnd - fadeStart))
+    }
+
     /// Compute a scale factor (minScale...1.0) based on distance from center.
     /// Uses a cosine curve for a smooth Apple Watch-like falloff.
     private func bubbleScale(distance: CGFloat) -> CGFloat {
@@ -125,52 +133,49 @@ struct BubbleGridView: View {
     }
 
     /// Generate honeycomb grid positions centered at (0,0).
-    /// Fills outward in concentric hexagonal rings so there are never
-    /// gaps between placed bubbles — always one tight blob.
+    /// Uses axial hex coordinates converted to pixel positions.
+    /// Fills outward in concentric rings like flower petals.
     private func honeycombPositions(count: Int) -> [CGPoint] {
         guard count > 0 else { return [] }
 
-        let rowHeight = cellSpacing * sqrt(3) / 2
+        // Convert axial hex coordinate (q, r) to pixel position.
+        // "Pointy-top" orientation so the first ring of 6 surrounds center like petals.
+        let size = cellSpacing / 2
+        func hexToPixel(q: Int, r: Int) -> CGPoint {
+            let x = size * (sqrt(3) * Double(q) + sqrt(3) / 2 * Double(r))
+            let y = size * (3.0 / 2.0 * Double(r))
+            return CGPoint(x: x, y: y)
+        }
 
-        // Hex directions for traversing each side of a ring.
-        // Order: upper-left, left, lower-left, lower-right, right, upper-right
-        let directions: [(dx: CGFloat, dy: CGFloat)] = [
-            (-cellSpacing * 0.5, -rowHeight),  // upper-left
-            (-cellSpacing,        0),           // left
-            (-cellSpacing * 0.5,  rowHeight),  // lower-left
-            ( cellSpacing * 0.5,  rowHeight),  // lower-right
-            ( cellSpacing,        0),           // right
-            ( cellSpacing * 0.5, -rowHeight)   // upper-right
-        ]
-
-        var positions: [CGPoint] = [.zero]
+        var positions: [CGPoint] = [.zero] // ring 0: center
         if count == 1 { return positions }
+
+        // Axial direction vectors for the 6 sides of a hex ring
+        let axialDirections: [(dq: Int, dr: Int)] = [
+            ( 0, -1), // side 0: move up
+            (-1,  0), // side 1: move upper-left
+            (-1,  1), // side 2: move lower-left
+            ( 0,  1), // side 3: move down
+            ( 1,  0), // side 4: move lower-right
+            ( 1, -1)  // side 5: move upper-right
+        ]
 
         var ring = 1
         while positions.count < count {
-            // Start each ring at the position directly to the right of center
-            var x = CGFloat(ring) * cellSpacing
-            var y: CGFloat = 0
+            // Start at the hex to the lower-right of center: (ring, 0)
+            // then walk ring steps along each of the 6 sides
+            var q = ring
+            var r = 0
 
-            for (sideIndex, dir) in directions.enumerated() {
-                let stepsOnSide = ring
-                for step in 0..<stepsOnSide {
-                    // Skip the very first position of the first side on step 0
-                    // because that's the starting corner we already placed
-                    if sideIndex == 0 && step == 0 {
-                        positions.append(CGPoint(x: x, y: y))
-                        if positions.count >= count {
-                            return Array(positions.prefix(count))
-                        }
-                        // Don't move yet — next iteration will move
-                        continue
-                    }
-                    x += dir.dx
-                    y += dir.dy
-                    positions.append(CGPoint(x: x, y: y))
+            for side in 0..<6 {
+                let dir = axialDirections[side]
+                for _ in 0..<ring {
+                    positions.append(hexToPixel(q: q, r: r))
                     if positions.count >= count {
                         return Array(positions.prefix(count))
                     }
+                    q += dir.dq
+                    r += dir.dr
                 }
             }
 
@@ -245,4 +250,43 @@ nonisolated private func downsampleBubble(data: Data, maxDimension: CGFloat) -> 
         return nil
     }
     return UIImage(cgImage: cgImage)
+}
+
+/// Full-screen wrapper for presenting the BubbleGridView with navigation support.
+struct BubbleGridFullScreenView: View {
+    let title: String
+    let entries: [BubbleEntry]
+    @Environment(\.dismiss) private var dismiss
+    @State private var navigationPath = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $navigationPath) {
+            BubbleGridView(entries: entries) { destination in
+                switch destination {
+                case .item(let item):
+                    navigationPath.append(item)
+                case .container(let container):
+                    navigationPath.append(container)
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonBorderShape(.circle)
+                }
+            }
+            .navigationDestination(for: Item.self) { item in
+                ItemDetailView(item: item)
+            }
+            .navigationDestination(for: Container.self) { container in
+                ContainerDetailView(container: container)
+            }
+        }
+    }
 }

@@ -8,11 +8,7 @@ struct PathService {
             return breadcrumb(for: container)
         }
         if let location = item.location {
-            var path = [location.name]
-            if let house = location.house {
-                path.insert(house.name, at: 0)
-            }
-            return path
+            return location.breadcrumbComponents
         }
         return ["Unassigned"]
     }
@@ -25,12 +21,9 @@ struct PathService {
             components.insert(parent.name, at: 0)
             current = parent.parentContainer
         }
-        let location = container.resolvedLocation
-        if let location {
-            components.insert(location.name, at: 0)
-            if let house = location.house {
-                components.insert(house.name, at: 0)
-            }
+        if let location = container.resolvedLocation {
+            let locComponents = location.breadcrumbComponents
+            components.insert(contentsOf: locComponents, at: 0)
         }
         return components
     }

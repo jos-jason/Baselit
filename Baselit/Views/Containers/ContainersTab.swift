@@ -8,9 +8,38 @@ struct ContainersTab: View {
     @State private var filterHouse: House?
     @State private var filterLocation: Location?
     @State private var houses: [House] = []
+    @State private var showAddContainer = false
 
     private var availableLocations: [Location] {
-        filterHouse?.locations.sorted(by: { $0.name < $1.name }) ?? []
+        filterHouse?.locations
+            .filter { $0.parentLocation == nil }
+            .sorted(by: { $0.name < $1.name }) ?? []
+    }
+
+    private var allAvailableLocations: [Location] {
+        var result: [Location] = []
+        for loc in availableLocations {
+            result.append(loc)
+            collectSubLocations(loc, into: &result)
+        }
+        return result
+    }
+
+    private func collectSubLocations(_ location: Location, into result: inout [Location]) {
+        for sub in location.subLocations.sorted(by: { $0.name < $1.name }) {
+            result.append(sub)
+            collectSubLocations(sub, into: &result)
+        }
+    }
+
+    private func indentedLocationName(for location: Location) -> String {
+        var depth = 0
+        var current = location.parentLocation
+        while current != nil {
+            depth += 1
+            current = current?.parentLocation
+        }
+        return String(repeating: "  ", count: depth) + location.name
     }
 
     private var filteredContainers: [Container] {
@@ -49,7 +78,7 @@ struct ContainersTab: View {
                     EmptyStateView(
                         icon: "archivebox",
                         title: "No Containers",
-                        message: "Containers are created from within a location. Go to Places to add one."
+                        message: "Tap + to create your first container, or add one from within a location."
                     )
                 } else {
                     List {
@@ -65,11 +94,11 @@ struct ContainersTab: View {
                                 filterLocation = nil
                             }
 
-                            if filterHouse != nil && !availableLocations.isEmpty {
+                            if filterHouse != nil && !allAvailableLocations.isEmpty {
                                 Picker("Location", selection: $filterLocation) {
                                     Text("All Locations").tag(nil as Location?)
-                                    ForEach(availableLocations) { loc in
-                                        Text(loc.name).tag(loc as Location?)
+                                    ForEach(allAvailableLocations) { loc in
+                                        Text(indentedLocationName(for: loc)).tag(loc as Location?)
                                     }
                                 }
                             }
@@ -106,6 +135,20 @@ struct ContainersTab: View {
                 ItemDetailView(item: item)
             }
             .onAppear { loadHouses() }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showAddContainer = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showAddContainer) {
+                NavigationStack {
+                    AddContainerView()
+                }
+            }
         }
     }
 
@@ -119,8 +162,11 @@ struct ContainersTab: View {
 
     /// Check if a container or any of its descendants match the keyword
     private func containerMatchesKeyword(_ container: Container, keyword: String) -> Bool {
-        // Check the container's own name
+        // Check the container's own name and identifier
         if container.name.localizedCaseInsensitiveContains(keyword) {
+            return true
+        }
+        if container.identifier.localizedCaseInsensitiveContains(keyword) {
             return true
         }
 
@@ -171,6 +217,11 @@ private struct ContainerListRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(container.name)
                     .font(.headline)
+
+                Text(container.identifier)
+                    .font(.caption)
+                    .fontDesign(.monospaced)
+                    .foregroundStyle(.tertiary)
 
                 if !parentPath.isEmpty {
                     BreadcrumbView(components: parentPath)

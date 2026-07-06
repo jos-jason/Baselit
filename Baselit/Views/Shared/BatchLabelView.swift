@@ -58,7 +58,7 @@ struct BatchLabelView: View {
                                 Image(systemName: selectedContainerIDs.contains(container.persistentModelID)
                                       ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(selectedContainerIDs.contains(container.persistentModelID)
-                                                     ? .blue : .secondary)
+                                                     ? .primary : .secondary)
                                     .font(.title3)
 
                                 VStack(alignment: .leading, spacing: 4) {
@@ -101,7 +101,7 @@ struct BatchLabelView: View {
                                 Image(systemName: selectedItemIDs.contains(item.persistentModelID)
                                       ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(selectedItemIDs.contains(item.persistentModelID)
-                                                     ? .blue : .secondary)
+                                                     ? .primary : .secondary)
                                     .font(.title3)
 
                                 VStack(alignment: .leading, spacing: 4) {

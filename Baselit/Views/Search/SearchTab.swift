@@ -13,6 +13,12 @@ struct SearchTab: View {
     @State private var matchingContainers: [Container] = []
     @State private var matchingItems: [Item] = []
     @State private var hasSearched = false
+    @State private var navigationPath = NavigationPath()
+    @State private var showQRScanner = false
+    @State private var showScanError = false
+    @State private var scanErrorMessage = ""
+    @State private var showSettings = false
+    @State private var bubbleEntries: [BubbleEntry] = []
 
     private var hasAnyResults: Bool {
         !matchingHouses.isEmpty || !matchingLocations.isEmpty ||
@@ -20,60 +26,69 @@ struct SearchTab: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
+        NavigationStack(path: $navigationPath) {
+            Group {
                 if !hasSearched && searchText.isEmpty {
-                    ContentUnavailableView {
-                        Label("Search", systemImage: "magnifyingglass")
-                    } description: {
-                        Text("Search across houses, locations, containers, and items.")
+                    if bubbleEntries.isEmpty {
+                        ContentUnavailableView {
+                            Label("Search", systemImage: "magnifyingglass")
+                        } description: {
+                            Text("Search across houses, locations, containers, and items.")
+                        }
+                    } else {
+                        BubbleGridView(entries: bubbleEntries) { destination in
+                            switch destination {
+                            case .item(let item):
+                                navigationPath.append(item)
+                            case .container(let container):
+                                navigationPath.append(container)
+                            }
+                        }
                     }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
                 } else if !hasAnyResults {
                     ContentUnavailableView {
                         Label("No Results", systemImage: "magnifyingglass")
                     } description: {
                         Text("Nothing matched your search.")
                     }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
                 } else {
-                    if !matchingHouses.isEmpty {
-                        Section("Houses") {
-                            ForEach(matchingHouses) { house in
-                                NavigationLink(value: house) {
-                                    HouseSearchRow(house: house)
+                    List {
+                        if !matchingHouses.isEmpty {
+                            Section("Houses") {
+                                ForEach(matchingHouses) { house in
+                                    NavigationLink(value: house) {
+                                        HouseSearchRow(house: house)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if !matchingLocations.isEmpty {
-                        Section("Locations") {
-                            ForEach(matchingLocations) { location in
-                                NavigationLink(value: location) {
-                                    LocationSearchRow(location: location)
+                        if !matchingLocations.isEmpty {
+                            Section("Locations") {
+                                ForEach(matchingLocations) { location in
+                                    NavigationLink(value: location) {
+                                        LocationSearchRow(location: location)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if !matchingContainers.isEmpty {
-                        Section("Containers") {
-                            ForEach(matchingContainers) { container in
-                                NavigationLink(value: container) {
-                                    ContainerSearchRow(container: container)
+                        if !matchingContainers.isEmpty {
+                            Section("Containers") {
+                                ForEach(matchingContainers) { container in
+                                    NavigationLink(value: container) {
+                                        ContainerSearchRow(container: container)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if !matchingItems.isEmpty {
-                        Section("Items") {
-                            ForEach(matchingItems) { item in
-                                NavigationLink(value: item) {
-                                    SearchResultRow(item: item)
+                        if !matchingItems.isEmpty {
+                            Section("Items") {
+                                ForEach(matchingItems) { item in
+                                    NavigationLink(value: item) {
+                                        SearchResultRow(item: item)
+                                    }
                                 }
                             }
                         }
@@ -81,11 +96,35 @@ struct SearchTab: View {
                 }
             }
             .searchable(text: $searchText, prompt: "Search everything...")
-            .onChange(of: searchText) { performSearch() }
+            .onChange(of: searchText) {
+                    if searchText.isEmpty {
+                        hasSearched = false
+                        matchingHouses = []
+                        matchingLocations = []
+                        matchingContainers = []
+                        matchingItems = []
+                    } else {
+                        performSearch()
+                    }
+                }
             .onChange(of: selectedHouse) { performSearch() }
             .onChange(of: selectedCategory) { performSearch() }
             .onChange(of: selectedColor) { performSearch() }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showQRScanner = true
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                    }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showFilters = true
@@ -101,6 +140,20 @@ struct SearchTab: View {
                     selectedColor: $selectedColor
                 )
             }
+            .fullScreenCover(isPresented: $showQRScanner) {
+                QRScannerView { scannedValue in
+                    handleScannedCode(scannedValue)
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsSheet()
+            }
+            .alert("Scan Error", isPresented: $showScanError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(scanErrorMessage)
+            }
             .navigationDestination(for: House.self) { house in
                 HouseDetailView(house: house)
             }
@@ -114,6 +167,7 @@ struct SearchTab: View {
                 ItemDetailView(item: item)
             }
             .navigationTitle("Search")
+            .onAppear { loadBubbleEntries() }
         }
     }
 
@@ -123,6 +177,27 @@ struct SearchTab: View {
         if selectedCategory != nil { count += 1 }
         if selectedColor != nil { count += 1 }
         return count
+    }
+
+    private func handleScannedCode(_ code: String) {
+        do {
+            let result = try InventoryService.lookupByQRPayload(code, in: modelContext)
+            switch result {
+            case .container(let container):
+                navigationPath.append(container)
+            case .item(let item):
+                navigationPath.append(item)
+            case .notFound:
+                scanErrorMessage = "No matching container or item found for this QR code."
+                showScanError = true
+            case .invalidFormat:
+                scanErrorMessage = "This QR code is not a Baselit label."
+                showScanError = true
+            }
+        } catch {
+            scanErrorMessage = "Failed to look up QR code: \(error.localizedDescription)"
+            showScanError = true
+        }
     }
 
     private func performSearch() {
@@ -149,6 +224,39 @@ struct SearchTab: View {
             matchingLocations = []
             matchingContainers = []
             matchingItems = []
+        }
+    }
+
+    private func loadBubbleEntries() {
+        do {
+            let items = try InventoryService.allItems(in: modelContext)
+            let containers = try InventoryService.allContainers(in: modelContext)
+
+            var entries: [BubbleEntry] = []
+
+            for item in items {
+                entries.append(BubbleEntry(
+                    id: "item-\(item.persistentModelID.hashValue)",
+                    name: item.name,
+                    photos: item.photos,
+                    placeholderIcon: "shippingbox",
+                    destination: .item(item)
+                ))
+            }
+
+            for container in containers {
+                entries.append(BubbleEntry(
+                    id: "container-\(container.persistentModelID.hashValue)",
+                    name: container.name,
+                    photos: container.photos,
+                    placeholderIcon: "archivebox",
+                    destination: .container(container)
+                ))
+            }
+
+            bubbleEntries = entries.shuffled()
+        } catch {
+            bubbleEntries = []
         }
     }
 }
@@ -187,10 +295,14 @@ private struct LocationSearchRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(location.name)
                     .font(.headline)
-                if let house = location.house {
-                    BreadcrumbView(components: [house.name])
+                let parentComponents = location.breadcrumbComponents.dropLast()
+                if !parentComponents.isEmpty {
+                    BreadcrumbView(components: Array(parentComponents))
                 }
                 HStack(spacing: 12) {
+                    if !location.subLocations.isEmpty {
+                        Label("\(location.subLocations.count) sub-locations", systemImage: "mappin")
+                    }
                     Label("\(location.containers.count) containers", systemImage: "archivebox")
                     Label("\(location.items.count) items", systemImage: "shippingbox")
                 }

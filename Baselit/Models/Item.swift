@@ -15,6 +15,11 @@ final class Item {
     var createdAt: Date
     var updatedAt: Date
 
+    /// A persistent two-word identifier (e.g. "Calm River") assigned at creation.
+    /// This never changes, even when other item data is edited.
+    @Attribute(originalName: "identifier")
+    var identifier: String = ""
+
     // Storage location: either directly in a location or inside a container
     var container: Container?
     var location: Location?
@@ -22,12 +27,13 @@ final class Item {
     @Relationship(deleteRule: .nullify, inverse: \Tag.items)
     var tags: [Tag] = []
 
-    @Relationship(deleteRule: .cascade, inverse: \ItemPhoto.item)
-    var photos: [ItemPhoto] = []
+    @Relationship(deleteRule: .cascade, inverse: \Photo.item)
+    var photos: [Photo] = []
 
     init(name: String, quantity: Int = 1) {
         self.name = name
         self.quantity = quantity
+        self.identifier = IdentifierGenerator.generate()
         self.createdAt = .now
         self.updatedAt = .now
     }
@@ -35,7 +41,7 @@ final class Item {
     /// Resolve the house this item is in
     var resolvedHouse: House? {
         if let container { return container.resolvedHouse }
-        return location?.house
+        return location?.resolvedHouse
     }
 
     /// Compute the breadcrumb path components
@@ -44,11 +50,7 @@ final class Item {
             return container.breadcrumbComponents
         }
         if let location {
-            var path = [location.name]
-            if let house = location.house {
-                path.insert(house.name, at: 0)
-            }
-            return path
+            return location.breadcrumbComponents
         }
         return ["Unassigned"]
     }

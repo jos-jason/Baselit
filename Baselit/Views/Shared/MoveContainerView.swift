@@ -28,7 +28,9 @@ struct MoveContainerView: View {
     }
 
     private var availableLocations: [Location] {
-        selectedHouse?.locations.sorted(by: { $0.name < $1.name }) ?? []
+        selectedHouse?.locations
+            .filter { $0.parentLocation == nil }
+            .sorted(by: { $0.name < $1.name }) ?? []
     }
 
     private var availableContainers: [Container] {
@@ -79,6 +81,9 @@ struct MoveContainerView: View {
                         Text("Select location...").tag(nil as Location?)
                         ForEach(availableLocations) { loc in
                             Text(loc.name).tag(loc as Location?)
+                        }
+                        ForEach(nestedLocations()) { loc in
+                            Text(indentedLocationName(for: loc)).tag(loc as Location?)
                         }
                     }
                     .onChange(of: selectedLocation) {
@@ -147,6 +152,31 @@ struct MoveContainerView: View {
                 houseSelection = .unassigned
             }
         }
+    }
+
+    private func nestedLocations() -> [Location] {
+        var result: [Location] = []
+        for location in availableLocations {
+            collectNestedLocations(location: location, into: &result)
+        }
+        return result
+    }
+
+    private func collectNestedLocations(location: Location, into result: inout [Location]) {
+        for sub in location.subLocations.sorted(by: { $0.name < $1.name }) {
+            result.append(sub)
+            collectNestedLocations(location: sub, into: &result)
+        }
+    }
+
+    private func indentedLocationName(for location: Location) -> String {
+        var depth = 0
+        var current = location.parentLocation
+        while current != nil {
+            depth += 1
+            current = current?.parentLocation
+        }
+        return String(repeating: "  ", count: depth) + location.name
     }
 
     private func isDescendantOrSelf(_ other: Container) -> Bool {

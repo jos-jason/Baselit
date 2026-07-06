@@ -17,6 +17,7 @@ struct BatchMoveView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var houses: [House] = []
+    @State private var allUnassignedContainers: [Container] = []
     @State private var houseSelection: HouseSelection = .none
     @State private var selectedLocation: Location?
     @State private var selectedContainer: Container?
@@ -50,6 +51,13 @@ struct BatchMoveView: View {
             .sorted(by: { $0.name < $1.name })
     }
 
+    /// Top-level unassigned containers available as destinations
+    private var unassignedContainerOptions: [Container] {
+        allUnassignedContainers
+            .filter { !isExcluded($0) }
+            .sorted(by: { $0.name < $1.name })
+    }
+
     var body: some View {
         Form {
             Section("Moving \(totalCount) item\(totalCount == 1 ? "" : "s")") {
@@ -74,6 +82,18 @@ struct BatchMoveView: View {
                 .onChange(of: houseSelection) {
                     selectedLocation = nil
                     selectedContainer = nil
+                }
+
+                if isUnassigned && !unassignedContainerOptions.isEmpty {
+                    Picker("Container (optional)", selection: $selectedContainer) {
+                        Text("No container").tag(nil as Container?)
+                        ForEach(unassignedContainerOptions) { container in
+                            Text(container.name).tag(container as Container?)
+                        }
+                        ForEach(nestedUnassignedContainers()) { container in
+                            Text(indentedName(for: container)).tag(container as Container?)
+                        }
+                    }
                 }
 
                 if selectedHouse != nil {
@@ -103,8 +123,13 @@ struct BatchMoveView: View {
 
             if isUnassigned {
                 Section("New Path") {
-                    Text("Unassigned")
-                        .foregroundStyle(.secondary)
+                    if let container = selectedContainer {
+                        Text("Unassigned › \(container.name)")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Unassigned")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             } else if selectedLocation != nil || selectedContainer != nil {
                 Section("New Path") {
@@ -134,8 +159,13 @@ struct BatchMoveView: View {
         .onAppear {
             do {
                 houses = try InventoryService.allHouses(in: modelContext)
+                let allContainers = try InventoryService.allContainers(in: modelContext)
+                allUnassignedContainers = allContainers.filter {
+                    $0.parentContainer == nil && $0.location == nil
+                }
             } catch {
                 houses = []
+                allUnassignedContainers = []
             }
         }
     }
@@ -185,6 +215,14 @@ struct BatchMoveView: View {
         return false
     }
 
+    private func nestedUnassignedContainers() -> [Container] {
+        var result: [Container] = []
+        for container in unassignedContainerOptions {
+            collectNested(container: container, into: &result)
+        }
+        return result
+    }
+
     private func nestedContainers() -> [Container] {
         var result: [Container] = []
         for container in availableContainers {
@@ -214,8 +252,16 @@ struct BatchMoveView: View {
     // MARK: - Perform Move
 
     private func performBatchMove() {
-        let targetContainer = isUnassigned ? nil : selectedContainer
-        let targetLocation = isUnassigned ? nil : (selectedContainer == nil ? selectedLocation : nil)
+        let targetContainer: Container?
+        let targetLocation: Location?
+
+        if isUnassigned {
+            targetContainer = selectedContainer  // may be an unassigned container or nil
+            targetLocation = nil
+        } else {
+            targetContainer = selectedContainer
+            targetLocation = selectedContainer == nil ? selectedLocation : nil
+        }
 
         for item in items {
             ContainerService.moveItem(

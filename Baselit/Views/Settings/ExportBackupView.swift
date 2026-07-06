@@ -93,21 +93,18 @@ struct ExportBackupView: View {
         errorMessage = nil
         exportProgress = "Preparing backup..."
 
-        Task.detached {
+        let photos = includePhotos
+        let context = modelContext
+        Task {
             do {
-                let options = BackupExportService.ExportOptions(includePhotos: includePhotos)
-                let url = try BackupExportService.exportBackup(options: options, context: modelContext)
-
-                await MainActor.run {
-                    exportedFileURL = url
-                    isExporting = false
-                    showShareSheet = true
-                }
+                let options = BackupExportService.ExportOptions(includePhotos: photos)
+                let url = try BackupExportService.exportBackup(options: options, context: context)
+                exportedFileURL = url
+                isExporting = false
+                showShareSheet = true
             } catch {
-                await MainActor.run {
-                    errorMessage = "Export failed: \(error.localizedDescription)"
-                    isExporting = false
-                }
+                errorMessage = "Export failed: \(error.localizedDescription)"
+                isExporting = false
             }
         }
     }

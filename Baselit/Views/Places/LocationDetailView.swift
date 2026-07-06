@@ -7,15 +7,92 @@ struct LocationDetailView: View {
     @State private var showAddContainer = false
     @State private var newContainerName = ""
     @State private var showAddItem = false
+    @State private var showAddSubLocation = false
+    @State private var newSubLocationName = ""
     @State private var showEditLocation = false
     @State private var editedName = ""
+    @State private var showCamera = false
+    @State private var showBubbleGrid = false
+
+    /// Recursively collect all items and containers within this location.
+    private var allBubbleEntries: [BubbleEntry] {
+        var entries: [BubbleEntry] = []
+
+        func collectFromContainer(_ container: Container) {
+            entries.append(BubbleEntry(
+                id: "container-\(container.persistentModelID.hashValue)",
+                name: container.name,
+                photos: container.photos,
+                placeholderIcon: "archivebox",
+                destination: .container(container)
+            ))
+            for item in container.items {
+                entries.append(BubbleEntry(
+                    id: "item-\(item.persistentModelID.hashValue)",
+                    name: item.name,
+                    photos: item.photos,
+                    placeholderIcon: "shippingbox",
+                    destination: .item(item)
+                ))
+            }
+            for sub in container.subContainers {
+                collectFromContainer(sub)
+            }
+        }
+
+        func collectFromLocation(_ loc: Location) {
+            for item in loc.items {
+                entries.append(BubbleEntry(
+                    id: "item-\(item.persistentModelID.hashValue)",
+                    name: item.name,
+                    photos: item.photos,
+                    placeholderIcon: "shippingbox",
+                    destination: .item(item)
+                ))
+            }
+            for container in loc.containers {
+                collectFromContainer(container)
+            }
+            for sub in loc.subLocations {
+                collectFromLocation(sub)
+            }
+        }
+
+        collectFromLocation(location)
+        return entries
+    }
 
     var body: some View {
         List {
+            // Photos
+            Section("Photos") {
+                PhotoGalleryView(
+                    photos: location.photos,
+                    onAdd: { photo in
+                        location.photos.append(photo)
+                    },
+                    onDelete: { photo in
+                        location.photos.removeAll { $0.persistentModelID == photo.persistentModelID }
+                    },
+                    showCamera: $showCamera
+                )
+            }
+
             // Breadcrumb
-            if let house = location.house {
+            if location.breadcrumbComponents.count > 1 {
                 Section {
-                    BreadcrumbView(components: [house.name, location.name])
+                    BreadcrumbView(components: location.breadcrumbComponents)
+                }
+            }
+
+            // Sub-locations
+            if !location.subLocations.isEmpty {
+                Section("Sub-Locations") {
+                    ForEach(location.subLocations.sorted(by: { $0.name < $1.name })) { subLocation in
+                        NavigationLink(value: subLocation) {
+                            SubLocationRow(location: subLocation)
+                        }
+                    }
                 }
             }
 
@@ -41,12 +118,33 @@ struct LocationDetailView: View {
                 }
             }
 
-            if location.containers.isEmpty && location.items.isEmpty {
-                EmptyStateView(
-                    icon: "tray",
-                    title: "Empty Location",
-                    message: "Add containers or items to this location."
-                )
+            if location.subLocations.isEmpty && location.containers.isEmpty && location.items.isEmpty {
+                ContentUnavailableView {
+                    Label("Empty Location", systemImage: "tray")
+                } description: {
+                    Text("Add sub-locations, containers, or items to this location.")
+                } actions: {
+                    HStack(spacing: 16) {
+                        Button {
+                            showAddSubLocation = true
+                        } label: {
+                            Label("Add Sub-Location", systemImage: "mappin")
+                        }
+                        Button {
+                            showAddContainer = true
+                        } label: {
+                            Label("Add Container", systemImage: "archivebox")
+                        }
+                        Button {
+                            showAddItem = true
+                        } label: {
+                            Label("Add Item", systemImage: "shippingbox")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
 
             if let notes = location.notes, !notes.isEmpty {
@@ -54,11 +152,35 @@ struct LocationDetailView: View {
                     Text(notes)
                 }
             }
+
+            if !allBubbleEntries.isEmpty {
+                Section {
+                    Button {
+                        showBubbleGrid = true
+                    } label: {
+                        Label("View All Items & Containers", systemImage: "circle.hexagongrid")
+                    }
+                }
+            }
         }
         .navigationTitle(location.name)
+        .navigationDestination(for: Location.self) { subLocation in
+            LocationDetailView(location: subLocation)
+        }
+        .fullScreenCover(isPresented: $showBubbleGrid) {
+            BubbleGridFullScreenView(
+                title: location.name,
+                entries: allBubbleEntries
+            )
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    Button {
+                        showAddSubLocation = true
+                    } label: {
+                        Label("Add Sub-Location", systemImage: "mappin")
+                    }
                     Button {
                         showAddContainer = true
                     } label: {
@@ -97,6 +219,17 @@ struct LocationDetailView: View {
                 ItemFormView(location: location)
             }
         }
+        .alert("New Sub-Location", isPresented: $showAddSubLocation) {
+            TextField("Sub-location name", text: $newSubLocationName)
+            Button("Cancel", role: .cancel) {
+                newSubLocationName = ""
+            }
+            Button("Add") {
+                addSubLocation()
+            }
+        } message: {
+            Text("Enter a name (e.g. Pantry, Closet, Workbench Area).")
+        }
         .alert("Edit Location", isPresented: $showEditLocation) {
             TextField("Location name", text: $editedName)
             Button("Cancel", role: .cancel) {}
@@ -108,6 +241,21 @@ struct LocationDetailView: View {
                 }
             }
         }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraView { capturedImage in
+                let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
+                let context = modelContext
+                Task.detached {
+                    let compressed = compressImageForGallery(data: data, maxDimension: 1200)
+                    await MainActor.run {
+                        let photo = Photo(imageData: compressed)
+                        context.insert(photo)
+                        location.photos.append(photo)
+                    }
+                }
+            }
+            .ignoresSafeArea()
+        }
     }
 
     private func addContainer() {
@@ -117,23 +265,60 @@ struct LocationDetailView: View {
         modelContext.insert(container)
         newContainerName = ""
     }
+
+    private func addSubLocation() {
+        let trimmed = newSubLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let subLocation = Location(name: trimmed, parentLocation: location)
+        modelContext.insert(subLocation)
+        newSubLocationName = ""
+    }
+}
+
+private struct SubLocationRow: View {
+    let location: Location
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(location.name)
+                .font(.headline)
+            HStack(spacing: 12) {
+                if !location.subLocations.isEmpty {
+                    Label("\(location.subLocations.count) sub-locations", systemImage: "mappin")
+                }
+                Label("\(location.containers.count) containers", systemImage: "archivebox")
+                Label("\(location.items.count) items", systemImage: "shippingbox")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
 }
 
 struct ContainerRow: View {
     let container: Container
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(container.name)
-                .font(.headline)
-            HStack(spacing: 12) {
-                if !container.subContainers.isEmpty {
-                    Label("\(container.subContainers.count) sub-containers", systemImage: "archivebox")
+        HStack(spacing: 12) {
+            ThumbnailView(photos: container.photos, placeholderIcon: "archivebox")
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(container.name)
+                    .font(.headline)
+                Text(container.identifier)
+                    .font(.caption)
+                    .fontDesign(.monospaced)
+                    .foregroundStyle(.tertiary)
+                HStack(spacing: 12) {
+                    if !container.subContainers.isEmpty {
+                        Label("\(container.subContainers.count) sub-containers", systemImage: "archivebox")
+                    }
+                    Label("\(container.items.count) items", systemImage: "shippingbox")
                 }
-                Label("\(container.items.count) items", systemImage: "shippingbox")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
     }
@@ -143,33 +328,37 @@ struct ItemRow: View {
     let item: Item
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(item.name)
-                .font(.headline)
-            HStack(spacing: 8) {
-                if let category = item.category {
-                    Text(category.displayName)
-                        .font(.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.fill.tertiary)
-                        .clipShape(Capsule())
-                }
-                if let color = item.color {
-                    Text(color.displayName)
-                        .font(.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.fill.tertiary)
-                        .clipShape(Capsule())
-                }
-                if item.quantity > 1 {
-                    Text("×\(item.quantity)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            ThumbnailView(photos: item.photos, placeholderIcon: "shippingbox")
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.name)
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    if let category = item.category {
+                        Text(category.displayName)
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.fill.tertiary)
+                            .clipShape(Capsule())
+                    }
+                    if let color = item.color {
+                        Text(color.displayName)
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.fill.tertiary)
+                            .clipShape(Capsule())
+                    }
+                    if item.quantity > 1 {
+                        Text("×\(item.quantity)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
-            BreadcrumbView(components: item.breadcrumbComponents)
         }
         .padding(.vertical, 2)
     }

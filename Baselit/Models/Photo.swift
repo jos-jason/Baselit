@@ -10,6 +10,7 @@ final class Photo {
     var item: Item?
     var container: Container?
     var house: House?
+    var location: Location?
 
     init(imageData: Data?, caption: String? = nil) {
         self.imageData = imageData
