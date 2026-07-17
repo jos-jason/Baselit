@@ -25,11 +25,12 @@ struct ContainerService {
         return false
     }
 
-    /// Move a container to a new parent container
+    /// Move a container to a new parent container, location, or house
     static func moveContainer(
         _ container: Container,
         toParent newParent: Container?,
-        inLocation location: Location?
+        inLocation location: Location?,
+        inHouse house: House? = nil
     ) throws {
         if let newParent {
             guard !wouldCreateCycle(container: container, newParent: newParent) else {
@@ -37,21 +38,25 @@ struct ContainerService {
             }
             container.parentContainer = newParent
             container.location = nil
+            container.house = nil
         } else {
             container.parentContainer = nil
             container.location = location
+            container.house = location == nil ? house : nil
         }
         container.updatedAt = .now
     }
 
-    /// Move an item to a different container or location
+    /// Move an item to a different container, location, or house
     static func moveItem(
         _ item: Item,
         toContainer container: Container?,
-        toLocation location: Location?
+        toLocation location: Location?,
+        toHouse house: House? = nil
     ) {
         item.container = container
         item.location = container == nil ? location : nil
+        item.house = (container == nil && location == nil) ? house : nil
         item.updatedAt = .now
     }
 }

@@ -12,13 +12,16 @@ struct SearchTab: View {
     @State private var matchingLocations: [Location] = []
     @State private var matchingContainers: [Container] = []
     @State private var matchingItems: [Item] = []
-    @State private var hasSearched = false
     @State private var navigationPath = NavigationPath()
     @State private var showQRScanner = false
     @State private var showScanError = false
     @State private var scanErrorMessage = ""
     @State private var showSettings = false
     @State private var bubbleEntries: [BubbleEntry] = []
+
+    private var hasActiveFilters: Bool {
+        selectedHouse != nil || selectedCategory != nil || selectedColor != nil
+    }
 
     private var hasAnyResults: Bool {
         !matchingHouses.isEmpty || !matchingLocations.isEmpty ||
@@ -28,12 +31,18 @@ struct SearchTab: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             Group {
-                if !hasSearched && searchText.isEmpty {
-                    if bubbleEntries.isEmpty {
+                if searchText.isEmpty {
+                    if bubbleEntries.isEmpty && !hasActiveFilters {
                         ContentUnavailableView {
                             Label("Search", systemImage: "magnifyingglass")
                         } description: {
                             Text("Search across houses, locations, containers, and items.")
+                        }
+                    } else if bubbleEntries.isEmpty && hasActiveFilters {
+                        ContentUnavailableView {
+                            Label("No Results", systemImage: "magnifyingglass")
+                        } description: {
+                            Text("Nothing matched your filters.")
                         }
                     } else {
                         BubbleGridView(entries: bubbleEntries) { destination in
@@ -98,7 +107,6 @@ struct SearchTab: View {
             .searchable(text: $searchText, prompt: "Search everything...")
             .onChange(of: searchText) {
                     if searchText.isEmpty {
-                        hasSearched = false
                         matchingHouses = []
                         matchingLocations = []
                         matchingContainers = []
@@ -107,9 +115,18 @@ struct SearchTab: View {
                         performSearch()
                     }
                 }
-            .onChange(of: selectedHouse) { performSearch() }
-            .onChange(of: selectedCategory) { performSearch() }
-            .onChange(of: selectedColor) { performSearch() }
+            .onChange(of: selectedHouse) {
+                loadBubbleEntries()
+                performSearch()
+            }
+            .onChange(of: selectedCategory) {
+                loadBubbleEntries()
+                performSearch()
+            }
+            .onChange(of: selectedColor) {
+                loadBubbleEntries()
+                performSearch()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -201,7 +218,6 @@ struct SearchTab: View {
     }
 
     private func performSearch() {
-        hasSearched = true
         do {
             matchingHouses = try InventoryService.searchHouses(
                 query: searchText, in: modelContext
@@ -229,8 +245,24 @@ struct SearchTab: View {
 
     private func loadBubbleEntries() {
         do {
-            let items = try InventoryService.allItems(in: modelContext)
-            let containers = try InventoryService.allContainers(in: modelContext)
+            var items = try InventoryService.allItems(in: modelContext)
+            var containers = try InventoryService.allContainers(in: modelContext)
+
+            // Apply active filters to bubble entries
+            if let selectedHouse {
+                items = items.filter { $0.resolvedHouse?.persistentModelID == selectedHouse.persistentModelID }
+                containers = containers.filter { $0.resolvedHouse?.persistentModelID == selectedHouse.persistentModelID }
+            }
+            if let selectedCategory {
+                items = items.filter { $0.category == selectedCategory }
+                // Containers don't have a category, so exclude them when filtering by category
+                containers = []
+            }
+            if let selectedColor {
+                items = items.filter { $0.colors.contains(selectedColor) }
+                // Containers don't have colors, so exclude them when filtering by color
+                containers = []
+            }
 
             var entries: [BubbleEntry] = []
 

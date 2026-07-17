@@ -40,7 +40,7 @@ struct InventoryService {
             results = results.filter { $0.category == category }
         }
         if let color {
-            results = results.filter { $0.color == color }
+            results = results.filter { $0.colors.contains(color) }
         }
         if !tags.isEmpty {
             let tagNames = Set(tags.map(\.name))

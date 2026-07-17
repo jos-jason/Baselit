@@ -15,6 +15,9 @@ enum ItemCategory: String, Codable, CaseIterable, Identifiable {
     case furniture
     case decor
     case outdoor
+    case art
+    case wellness
+    case jewelry
     case other
 
     var id: String { rawValue }

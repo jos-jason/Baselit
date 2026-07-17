@@ -14,7 +14,8 @@ struct MoveItemView: View {
     @State private var houses: [House] = []
     @State private var allUnassignedContainers: [Container] = []
     @State private var houseSelection: HouseSelection = .none
-    @State private var selectedLocation: Location?
+    /// Cascading location selections: index 0 = top-level, index 1 = sub-location, etc.
+    @State private var locationSelections: [Location?] = [nil]
     @State private var selectedContainer: Container?
 
     private var selectedHouse: House? {
@@ -26,14 +27,28 @@ struct MoveItemView: View {
         houseSelection == .unassigned
     }
 
-    private var availableLocations: [Location] {
+    /// The deepest selected location across all cascading pickers
+    private var deepestSelectedLocation: Location? {
+        locationSelections.compactMap { $0 }.last
+    }
+
+    /// Top-level locations for the selected house
+    private var topLevelLocations: [Location] {
         selectedHouse?.locations
             .filter { $0.parentLocation == nil }
             .sorted(by: { $0.name < $1.name }) ?? []
     }
 
+    /// Sub-locations available at a given depth (children of the selection at depth-1)
+    private func subLocations(atDepth depth: Int) -> [Location] {
+        guard depth > 0, depth <= locationSelections.count,
+              let parent = locationSelections[depth - 1] else { return [] }
+        return parent.subLocations.sorted(by: { $0.name < $1.name })
+    }
+
+    /// Containers at the deepest selected location
     private var availableContainers: [Container] {
-        guard let location = selectedLocation else { return [] }
+        guard let location = deepestSelectedLocation else { return [] }
         return location.containers.sorted(by: { $0.name < $1.name })
     }
 
@@ -50,6 +65,7 @@ struct MoveItemView: View {
             }
 
             Section("Move To") {
+                // House picker
                 Picker("House", selection: $houseSelection) {
                     Text("Select house...").tag(HouseSelection.none)
                     Text("Unassigned").tag(HouseSelection.unassigned)
@@ -58,10 +74,11 @@ struct MoveItemView: View {
                     }
                 }
                 .onChange(of: houseSelection) {
-                    selectedLocation = nil
+                    locationSelections = [nil]
                     selectedContainer = nil
                 }
 
+                // Unassigned container picker
                 if isUnassigned && !unassignedContainerOptions.isEmpty {
                     Picker("Container (optional)", selection: $selectedContainer) {
                         Text("No container").tag(nil as Container?)
@@ -74,22 +91,22 @@ struct MoveItemView: View {
                     }
                 }
 
+                // Cascading location pickers
                 if selectedHouse != nil {
-                    Picker("Location", selection: $selectedLocation) {
-                        Text("Select location...").tag(nil as Location?)
-                        ForEach(availableLocations) { loc in
-                            Text(loc.name).tag(loc as Location?)
+                    // Top-level location picker
+                    locationPicker(atDepth: 0, label: "Location", locations: topLevelLocations)
+
+                    // Sub-location pickers for each level that has a selection with children
+                    ForEach(1..<locationSelections.count, id: \.self) { depth in
+                        let subs = subLocations(atDepth: depth)
+                        if !subs.isEmpty {
+                            locationPicker(atDepth: depth, label: subLocationLabel(depth: depth), locations: subs)
                         }
-                        ForEach(nestedLocations()) { loc in
-                            Text(indentedLocationName(for: loc)).tag(loc as Location?)
-                        }
-                    }
-                    .onChange(of: selectedLocation) {
-                        selectedContainer = nil
                     }
                 }
 
-                if selectedLocation != nil {
+                // Container picker at the deepest selected location
+                if deepestSelectedLocation != nil {
                     Picker("Container (optional)", selection: $selectedContainer) {
                         Text("Directly in location").tag(nil as Container?)
                         ForEach(availableContainers) { container in
@@ -112,7 +129,7 @@ struct MoveItemView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            } else if selectedLocation != nil || selectedContainer != nil {
+            } else if deepestSelectedLocation != nil || selectedContainer != nil {
                 Section("New Path") {
                     Text(previewPath)
                         .foregroundStyle(.secondary)
@@ -129,7 +146,7 @@ struct MoveItemView: View {
                 Button("Move") {
                     performMove()
                 }
-                .disabled(!isUnassigned && selectedLocation == nil)
+                .disabled(!isUnassigned && selectedHouse == nil)
             }
         }
         .onAppear {
@@ -137,7 +154,7 @@ struct MoveItemView: View {
                 houses = try InventoryService.allHouses(in: modelContext)
                 let allContainers = try InventoryService.allContainers(in: modelContext)
                 allUnassignedContainers = allContainers.filter {
-                    $0.parentContainer == nil && $0.location == nil
+                    $0.parentContainer == nil && $0.location == nil && $0.house == nil
                 }
             } catch {
                 houses = []
@@ -145,17 +162,75 @@ struct MoveItemView: View {
             }
             if let house = item.resolvedHouse {
                 houseSelection = .house(house.persistentModelID)
-                selectedLocation = item.container?.resolvedLocation ?? item.location
+                // Rebuild cascading selections from the item's current location
+                if let currentLocation = item.container?.resolvedLocation ?? item.location {
+                    let chain = locationChain(for: currentLocation)
+                    locationSelections = chain.map { $0 as Location? }
+                    // Add a nil slot if the deepest location has sub-locations
+                    if let deepest = chain.last, !deepest.subLocations.isEmpty {
+                        locationSelections.append(nil)
+                    }
+                }
                 selectedContainer = item.container
-            } else if item.container == nil && item.location == nil {
+            } else if item.container == nil && item.location == nil && item.house == nil {
                 houseSelection = .unassigned
             }
         }
     }
 
+    /// Build a picker for a specific depth in the location hierarchy
+    private func locationPicker(atDepth depth: Int, label: String, locations: [Location]) -> some View {
+        let binding = Binding<Location?>(
+            get: {
+                guard depth < locationSelections.count else { return nil }
+                return locationSelections[depth]
+            },
+            set: { newValue in
+                // Update the selection at this depth
+                if depth < locationSelections.count {
+                    locationSelections[depth] = newValue
+                }
+                // Remove any deeper selections
+                if locationSelections.count > depth + 1 {
+                    locationSelections.removeSubrange((depth + 1)...)
+                }
+                // If the new selection has sub-locations, add a nil slot for the next level
+                if let loc = newValue, !loc.subLocations.isEmpty {
+                    locationSelections.append(nil)
+                }
+                // Reset container when location changes
+                selectedContainer = nil
+            }
+        )
+
+        return Picker(label, selection: binding) {
+            Text(depth == 0 ? "Select location..." : "None").tag(nil as Location?)
+            ForEach(locations) { loc in
+                Text(loc.name).tag(loc as Location?)
+            }
+        }
+    }
+
+    /// Returns a label like "Sub-location" or "Sub-sub-location" based on depth
+    private func subLocationLabel(depth: Int) -> String {
+        let prefix = String(repeating: "Sub-", count: depth)
+        return prefix + "location"
+    }
+
+    /// Builds the chain of locations from top-level down to the given location
+    private func locationChain(for location: Location) -> [Location] {
+        var chain: [Location] = [location]
+        var current = location.parentLocation
+        while let parent = current {
+            chain.insert(parent, at: 0)
+            current = parent.parentLocation
+        }
+        return chain
+    }
+
     private var previewPath: String {
         var components: [String] = []
-        if let location = selectedLocation {
+        if let location = deepestSelectedLocation {
             components = location.breadcrumbComponents
         } else if let house = selectedHouse {
             components.append(house.name)
@@ -170,31 +245,6 @@ struct MoveItemView: View {
             components.append(contentsOf: containerPath)
         }
         return components.joined(separator: " › ")
-    }
-
-    private func nestedLocations() -> [Location] {
-        var result: [Location] = []
-        for location in availableLocations {
-            collectNestedLocations(location: location, into: &result)
-        }
-        return result
-    }
-
-    private func collectNestedLocations(location: Location, into result: inout [Location]) {
-        for sub in location.subLocations.sorted(by: { $0.name < $1.name }) {
-            result.append(sub)
-            collectNestedLocations(location: sub, into: &result)
-        }
-    }
-
-    private func indentedLocationName(for location: Location) -> String {
-        var depth = 0
-        var current = location.parentLocation
-        while current != nil {
-            depth += 1
-            current = current?.parentLocation
-        }
-        return String(repeating: "  ", count: depth) + location.name
     }
 
     private func nestedUnassignedContainers() -> [Container] {
@@ -233,19 +283,23 @@ struct MoveItemView: View {
     private func performMove() {
         let targetContainer: Container?
         let targetLocation: Location?
+        let targetHouse: House?
 
         if isUnassigned {
             targetContainer = selectedContainer
             targetLocation = nil
+            targetHouse = nil
         } else {
             targetContainer = selectedContainer
-            targetLocation = selectedContainer == nil ? selectedLocation : nil
+            targetLocation = selectedContainer == nil ? deepestSelectedLocation : nil
+            targetHouse = selectedHouse
         }
 
         ContainerService.moveItem(
             item,
             toContainer: targetContainer,
-            toLocation: targetLocation
+            toLocation: targetLocation,
+            toHouse: targetHouse
         )
         dismiss()
     }

@@ -44,6 +44,12 @@ struct ItemDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 BreadcrumbView(components: item.breadcrumbComponents)
+                if let printedAt = item.lastLabelPrintedAt {
+                    LabeledContent("Label Printed") {
+                        Text(printedAt, format: .dateTime.month(.abbreviated).day().year().hour().minute())
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             // Main info
@@ -54,8 +60,11 @@ struct ItemDetailView: View {
                 if let category = item.category {
                     LabeledContent("Category", value: category.displayName)
                 }
-                if let color = item.color {
-                    LabeledContent("Color", value: color.displayName)
+                if !item.colors.isEmpty {
+                    LabeledContent("Colors") {
+                        Text(item.colors.map(\.displayName).joined(separator: ", "))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 if item.quantity > 1 {
                     LabeledContent("Quantity", value: "\(item.quantity)")
@@ -179,6 +188,9 @@ struct ItemDetailView: View {
                     type: "item"
                 )
             ])
+            .onAppear {
+                item.lastLabelPrintedAt = .now
+            }
         }
     }
 }

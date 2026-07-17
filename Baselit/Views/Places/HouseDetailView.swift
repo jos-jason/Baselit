@@ -17,6 +17,14 @@ struct HouseDetailView: View {
             .sorted(by: { $0.name < $1.name })
     }
 
+    private var directItems: [Item] {
+        house.items.sorted(by: { $0.name < $1.name })
+    }
+
+    private var directContainers: [Container] {
+        house.containers.sorted(by: { $0.name < $1.name })
+    }
+
     /// Recursively collect all items and containers across all locations in this house.
     private var allBubbleEntries: [BubbleEntry] {
         var entries: [BubbleEntry] = []
@@ -61,6 +69,21 @@ struct HouseDetailView: View {
             }
         }
 
+        // Items and containers directly assigned to the house (no location)
+        for item in house.items {
+            entries.append(BubbleEntry(
+                id: "item-\(item.persistentModelID.hashValue)",
+                name: item.name,
+                photos: item.photos,
+                placeholderIcon: "shippingbox",
+                destination: .item(item)
+            ))
+        }
+        for container in house.containers {
+            collectFromContainer(container)
+        }
+
+        // Items and containers within locations
         for location in house.locations {
             collectFromLocation(location)
         }
@@ -93,7 +116,29 @@ struct HouseDetailView: View {
                     }
                     .onDelete(perform: deleteLocations)
                 }
-            } else {
+            }
+
+            if !directContainers.isEmpty {
+                Section("Containers") {
+                    ForEach(directContainers) { container in
+                        NavigationLink(value: container) {
+                            ContainerRow(container: container)
+                        }
+                    }
+                }
+            }
+
+            if !directItems.isEmpty {
+                Section("Items") {
+                    ForEach(directItems) { item in
+                        NavigationLink(value: item) {
+                            ItemRow(item: item)
+                        }
+                    }
+                }
+            }
+
+            if topLevelLocations.isEmpty && directContainers.isEmpty && directItems.isEmpty {
                 ContentUnavailableView {
                     Label("No Locations", systemImage: "mappin")
                 } description: {

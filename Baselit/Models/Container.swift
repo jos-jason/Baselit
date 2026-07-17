@@ -8,6 +8,7 @@ final class Container {
     var notes: String?
     var createdAt: Date
     var updatedAt: Date
+    var lastLabelPrintedAt: Date?
 
     /// A persistent two-word identifier (e.g. "Bright Falcon") assigned at creation.
     /// This never changes, even when other container data is edited.
@@ -22,6 +23,9 @@ final class Container {
 
     // Location this container is directly in (only for top-level containers)
     var location: Location?
+
+    // House this container is directly in (when no specific location is assigned)
+    var house: House?
 
     @Relationship(deleteRule: .nullify, inverse: \Item.container)
     var items: [Item] = []
@@ -48,7 +52,8 @@ final class Container {
 
     /// Walk up to find the house
     var resolvedHouse: House? {
-        resolvedLocation?.resolvedHouse
+        if let house { return house }
+        return resolvedLocation?.resolvedHouse ?? parentContainer?.resolvedHouse
     }
 
     /// Compute the breadcrumb path components
@@ -62,6 +67,8 @@ final class Container {
         if let loc = resolvedLocation {
             let locComponents = loc.breadcrumbComponents
             components.insert(contentsOf: locComponents, at: 0)
+        } else if let house = resolvedHouse {
+            components.insert(house.name, at: 0)
         }
         return components
     }

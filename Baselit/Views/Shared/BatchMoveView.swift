@@ -37,7 +37,9 @@ struct BatchMoveView: View {
     }
 
     private var availableLocations: [Location] {
-        selectedHouse?.locations.sorted(by: { $0.name < $1.name }) ?? []
+        selectedHouse?.locations
+            .filter { $0.parentLocation == nil }
+            .sorted(by: { $0.name < $1.name }) ?? []
     }
 
     private var movingContainerIDs: Set<PersistentIdentifier> {
@@ -102,6 +104,9 @@ struct BatchMoveView: View {
                         ForEach(availableLocations) { loc in
                             Text(loc.name).tag(loc as Location?)
                         }
+                        ForEach(nestedLocations()) { loc in
+                            Text(indentedLocationName(for: loc)).tag(loc as Location?)
+                        }
                     }
                     .onChange(of: selectedLocation) {
                         selectedContainer = nil
@@ -153,7 +158,7 @@ struct BatchMoveView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Move") { performBatchMove() }
-                    .disabled(!isUnassigned && selectedLocation == nil)
+                    .disabled(!isUnassigned && selectedHouse == nil)
             }
         }
         .onAppear {
@@ -161,7 +166,7 @@ struct BatchMoveView: View {
                 houses = try InventoryService.allHouses(in: modelContext)
                 let allContainers = try InventoryService.allContainers(in: modelContext)
                 allUnassignedContainers = allContainers.filter {
-                    $0.parentContainer == nil && $0.location == nil
+                    $0.parentContainer == nil && $0.location == nil && $0.house == nil
                 }
             } catch {
                 houses = []
@@ -174,11 +179,10 @@ struct BatchMoveView: View {
 
     private var previewPath: String {
         var components: [String] = []
-        if let house = selectedHouse {
-            components.append(house.name)
-        }
         if let location = selectedLocation {
-            components.append(location.name)
+            components = location.breadcrumbComponents
+        } else if let house = selectedHouse {
+            components.append(house.name)
         }
         if let container = selectedContainer {
             var containerPath: [String] = [container.name]
@@ -213,6 +217,31 @@ struct BatchMoveView: View {
             current = c.parentContainer
         }
         return false
+    }
+
+    private func nestedLocations() -> [Location] {
+        var result: [Location] = []
+        for location in availableLocations {
+            collectNestedLocations(location: location, into: &result)
+        }
+        return result
+    }
+
+    private func collectNestedLocations(location: Location, into result: inout [Location]) {
+        for sub in location.subLocations.sorted(by: { $0.name < $1.name }) {
+            result.append(sub)
+            collectNestedLocations(location: sub, into: &result)
+        }
+    }
+
+    private func indentedLocationName(for location: Location) -> String {
+        var depth = 0
+        var current = location.parentLocation
+        while current != nil {
+            depth += 1
+            current = current?.parentLocation
+        }
+        return String(repeating: "  ", count: depth) + location.name
     }
 
     private func nestedUnassignedContainers() -> [Container] {
@@ -254,20 +283,24 @@ struct BatchMoveView: View {
     private func performBatchMove() {
         let targetContainer: Container?
         let targetLocation: Location?
+        let targetHouse: House?
 
         if isUnassigned {
             targetContainer = selectedContainer  // may be an unassigned container or nil
             targetLocation = nil
+            targetHouse = nil
         } else {
             targetContainer = selectedContainer
             targetLocation = selectedContainer == nil ? selectedLocation : nil
+            targetHouse = selectedHouse
         }
 
         for item in items {
             ContainerService.moveItem(
                 item,
                 toContainer: targetContainer,
-                toLocation: targetLocation
+                toLocation: targetLocation,
+                toHouse: targetHouse
             )
         }
 
@@ -276,7 +309,8 @@ struct BatchMoveView: View {
                 try ContainerService.moveContainer(
                     container,
                     toParent: targetContainer,
-                    inLocation: targetLocation
+                    inLocation: targetLocation,
+                    inHouse: targetHouse
                 )
             } catch {
                 errorMessage = "Failed to move \(container.name): \(error.localizedDescription)"

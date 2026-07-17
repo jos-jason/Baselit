@@ -12,6 +12,12 @@ final class House {
     @Relationship(deleteRule: .cascade, inverse: \Location.house)
     var locations: [Location] = []
 
+    @Relationship(deleteRule: .nullify, inverse: \Item.house)
+    var items: [Item] = []
+
+    @Relationship(deleteRule: .nullify, inverse: \Container.house)
+    var containers: [Container] = []
+
     @Relationship(deleteRule: .cascade, inverse: \Photo.house)
     var photos: [Photo] = []
 

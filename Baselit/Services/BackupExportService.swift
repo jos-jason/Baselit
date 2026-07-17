@@ -70,8 +70,10 @@ enum BackupExportService {
                 identifier: container.identifier,
                 createdAt: container.createdAt,
                 updatedAt: container.updatedAt,
+                lastLabelPrintedAt: container.lastLabelPrintedAt,
                 parentContainerExportID: container.parentContainer.map { containerIDMap[ObjectIdentifier($0)] } ?? nil,
-                locationExportID: container.location.map { locationIDMap[ObjectIdentifier($0)] } ?? nil
+                locationExportID: container.location.map { locationIDMap[ObjectIdentifier($0)] } ?? nil,
+                houseExportID: container.house.map { houseIDMap[ObjectIdentifier($0)] } ?? nil
             )
         }
 
@@ -81,7 +83,7 @@ enum BackupExportService {
                 name: item.name,
                 itemDescription: item.itemDescription,
                 category: item.category?.rawValue,
-                color: item.color?.rawValue,
+                colors: item.colors.map(\.rawValue),
                 quantity: item.quantity,
                 brand: item.brand,
                 model: item.model,
@@ -90,8 +92,10 @@ enum BackupExportService {
                 identifier: item.identifier,
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
+                lastLabelPrintedAt: item.lastLabelPrintedAt,
                 containerExportID: item.container.map { containerIDMap[ObjectIdentifier($0)] } ?? nil,
                 locationExportID: item.location.map { locationIDMap[ObjectIdentifier($0)] } ?? nil,
+                houseExportID: item.house.map { houseIDMap[ObjectIdentifier($0)] } ?? nil,
                 tagExportIDs: item.tags.compactMap { tagIDMap[ObjectIdentifier($0)] }
             )
         }
@@ -346,7 +350,7 @@ enum BackupExportService {
             "name": "string — required",
             "itemDescription": "string? — optional longer description",
             "category": "string? — one of the ItemCategory values listed below, or null",
-            "color": "string? — one of the ItemColor values listed below, or null",
+            "colors": "[string] — array of ItemColor values listed below (may be empty)",
             "quantity": "integer — how many of this item (minimum 1)",
             "brand": "string? — optional brand name",
             "model": "string? — optional model number/name",
@@ -407,15 +411,15 @@ enum BackupExportService {
         
         ```
         electronics, clothing, tools, kitchenware, documents, books, toys,
-        sports, seasonal, medical, crafts, furniture, decor, outdoor, other
+        sports, seasonal, medical, crafts, furniture, decor, outdoor, art, wellness, jewelry, other
         ```
         
         ### ItemColor
         
-        Valid values for the `color` field on Item:
+        Valid values for entries in the `colors` array on Item:
         
         ```
-        red, orange, yellow, green, blue, purple, pink, black, white, gray,
+        red, orange, yellow, green, blue, teal, turquoise, purple, pink, black, white, gray,
         brown, silver, gold, multicolor, clear, other
         ```
         

@@ -378,8 +378,10 @@ enum BackupImportService {
                         existing.name = exportContainer.name
                         existing.containerType = exportContainer.containerType
                         existing.notes = exportContainer.notes
+                        existing.lastLabelPrintedAt = exportContainer.lastLabelPrintedAt
                         existing.parentContainer = exportContainer.parentContainerExportID.flatMap { containerMap[$0] }
                         existing.location = exportContainer.locationExportID.flatMap { locationMap[$0] }
+                        existing.house = exportContainer.houseExportID.flatMap { houseMap[$0] }
                         existing.updatedAt = .now
                         result.containersImported += 1
                     }
@@ -393,6 +395,8 @@ enum BackupImportService {
                     )
                     container.identifier = IdentifierGenerator.generate()
                     container.createdAt = exportContainer.createdAt
+                    container.lastLabelPrintedAt = exportContainer.lastLabelPrintedAt
+                    container.house = exportContainer.houseExportID.flatMap { houseMap[$0] }
                     context.insert(container)
                     containerMap[exportContainer.exportID] = container
                     result.containersImported += 1
@@ -407,6 +411,8 @@ enum BackupImportService {
                 )
                 container.identifier = exportContainer.identifier
                 container.createdAt = exportContainer.createdAt
+                container.lastLabelPrintedAt = exportContainer.lastLabelPrintedAt
+                container.house = exportContainer.houseExportID.flatMap { houseMap[$0] }
                 context.insert(container)
                 containerMap[exportContainer.exportID] = container
                 result.containersImported += 1
@@ -427,14 +433,16 @@ enum BackupImportService {
                         existing.name = exportItem.name
                         existing.itemDescription = exportItem.itemDescription
                         existing.category = exportItem.category.flatMap { ItemCategory(rawValue: $0) }
-                        existing.color = exportItem.color.flatMap { ItemColor(rawValue: $0) }
+                        existing.colors = exportItem.colors.compactMap { ItemColor(rawValue: $0) }
                         existing.quantity = exportItem.quantity
                         existing.brand = exportItem.brand
                         existing.model = exportItem.model
                         existing.condition = exportItem.condition
                         existing.notes = exportItem.notes
+                        existing.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                         existing.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                         existing.location = exportItem.locationExportID.flatMap { locationMap[$0] }
+                        existing.house = exportItem.houseExportID.flatMap { houseMap[$0] }
                         existing.tags = exportItem.tagExportIDs.compactMap { tagMap[$0] }
                         existing.updatedAt = .now
                         result.itemsImported += 1
@@ -444,13 +452,15 @@ enum BackupImportService {
                     item.identifier = IdentifierGenerator.generate()
                     item.itemDescription = exportItem.itemDescription
                     item.category = exportItem.category.flatMap { ItemCategory(rawValue: $0) }
-                    item.color = exportItem.color.flatMap { ItemColor(rawValue: $0) }
+                    item.colors = exportItem.colors.compactMap { ItemColor(rawValue: $0) }
                     item.brand = exportItem.brand
                     item.model = exportItem.model
                     item.condition = exportItem.condition
                     item.notes = exportItem.notes
+                    item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                     item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                     item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
+                    item.house = exportItem.houseExportID.flatMap { houseMap[$0] }
                     item.tags = exportItem.tagExportIDs.compactMap { tagMap[$0] }
                     item.createdAt = exportItem.createdAt
                     context.insert(item)
@@ -462,13 +472,15 @@ enum BackupImportService {
                 item.identifier = exportItem.identifier
                 item.itemDescription = exportItem.itemDescription
                 item.category = exportItem.category.flatMap { ItemCategory(rawValue: $0) }
-                item.color = exportItem.color.flatMap { ItemColor(rawValue: $0) }
+                item.colors = exportItem.colors.compactMap { ItemColor(rawValue: $0) }
                 item.brand = exportItem.brand
                 item.model = exportItem.model
                 item.condition = exportItem.condition
                 item.notes = exportItem.notes
+                item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                 item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                 item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
+                item.house = exportItem.houseExportID.flatMap { houseMap[$0] }
                 item.tags = exportItem.tagExportIDs.compactMap { tagMap[$0] }
                 item.createdAt = exportItem.createdAt
                 context.insert(item)
@@ -548,6 +560,8 @@ enum BackupImportService {
             // Set identifier from backup (not generating a new one)
             container.identifier = exportContainer.identifier
             container.createdAt = exportContainer.createdAt
+            container.lastLabelPrintedAt = exportContainer.lastLabelPrintedAt
+            container.house = exportContainer.houseExportID.flatMap { houseMap[$0] }
             context.insert(container)
             containerMap[exportContainer.exportID] = container
             result.containersImported += 1
@@ -559,13 +573,15 @@ enum BackupImportService {
             item.identifier = exportItem.identifier
             item.itemDescription = exportItem.itemDescription
             item.category = exportItem.category.flatMap { ItemCategory(rawValue: $0) }
-            item.color = exportItem.color.flatMap { ItemColor(rawValue: $0) }
+            item.colors = exportItem.colors.compactMap { ItemColor(rawValue: $0) }
             item.brand = exportItem.brand
             item.model = exportItem.model
             item.condition = exportItem.condition
             item.notes = exportItem.notes
+            item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
             item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
             item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
+            item.house = exportItem.houseExportID.flatMap { houseMap[$0] }
             item.tags = exportItem.tagExportIDs.compactMap { tagMap[$0] }
             item.createdAt = exportItem.createdAt
             context.insert(item)
@@ -756,6 +772,13 @@ enum BackupImportService {
         if existingLocName != incomingLocName {
             diffs.append(PropertyDifference(propertyName: "Location", existingValue: existingLocName, incomingValue: incomingLocName))
         }
+        let existingHouseName = existing.house?.name ?? "(none)"
+        let incomingHouseName = incoming.houseExportID.flatMap { hid in
+            manifest.houses.first(where: { $0.exportID == hid })?.name
+        } ?? "(none)"
+        if existingHouseName != incomingHouseName {
+            diffs.append(PropertyDifference(propertyName: "House", existingValue: existingHouseName, incomingValue: incomingHouseName))
+        }
         return diffs
     }
 
@@ -770,8 +793,12 @@ enum BackupImportService {
         if existing.category?.rawValue != incoming.category {
             diffs.append(PropertyDifference(propertyName: "Category", existingValue: existing.category?.displayName ?? "(none)", incomingValue: incoming.category?.capitalized ?? "(none)"))
         }
-        if existing.color?.rawValue != incoming.color {
-            diffs.append(PropertyDifference(propertyName: "Color", existingValue: existing.color?.displayName ?? "(none)", incomingValue: incoming.color?.capitalized ?? "(none)"))
+        let existingColors = existing.colors.map(\.rawValue).sorted()
+        let incomingColors = incoming.colors.sorted()
+        if existingColors != incomingColors {
+            let existingDisplay = existingColors.isEmpty ? "(none)" : existingColors.map { $0.capitalized }.joined(separator: ", ")
+            let incomingDisplay = incomingColors.isEmpty ? "(none)" : incomingColors.map { $0.capitalized }.joined(separator: ", ")
+            diffs.append(PropertyDifference(propertyName: "Colors", existingValue: existingDisplay, incomingValue: incomingDisplay))
         }
         if existing.quantity != incoming.quantity {
             diffs.append(PropertyDifference(propertyName: "Quantity", existingValue: "\(existing.quantity)", incomingValue: "\(incoming.quantity)"))
@@ -808,6 +835,13 @@ enum BackupImportService {
         } ?? "(none)"
         if existingLocName != incomingLocName {
             diffs.append(PropertyDifference(propertyName: "Location", existingValue: existingLocName, incomingValue: incomingLocName))
+        }
+        let existingHouseName = existing.house?.name ?? "(none)"
+        let incomingHouseName = incoming.houseExportID.flatMap { hid in
+            manifest.houses.first(where: { $0.exportID == hid })?.name
+        } ?? "(none)"
+        if existingHouseName != incomingHouseName {
+            diffs.append(PropertyDifference(propertyName: "House", existingValue: existingHouseName, incomingValue: incomingHouseName))
         }
         return diffs
     }

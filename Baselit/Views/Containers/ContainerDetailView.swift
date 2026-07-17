@@ -14,6 +14,8 @@ struct ContainerDetailView: View {
     @State private var showCamera = false
     @State private var showShareSheet = false
     @State private var showBubbleGrid = false
+    @State private var showBulkCaptureItems = false
+    @State private var showBulkCaptureContainers = false
 
     /// Recursively collect all items and sub-containers within this container.
     private var allBubbleEntries: [BubbleEntry] {
@@ -69,6 +71,12 @@ struct ContainerDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 BreadcrumbView(components: container.breadcrumbComponents)
+                if let printedAt = container.lastLabelPrintedAt {
+                    LabeledContent("Label Printed") {
+                        Text(printedAt, format: .dateTime.month(.abbreviated).day().year().hour().minute())
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             // Sub-containers
@@ -146,6 +154,27 @@ struct ContainerDetailView: View {
                     }
                 }
             }
+
+            // Actions
+            Section {
+                Button {
+                    showShareSheet = true
+                } label: {
+                    Label("Print Label", systemImage: "qrcode")
+                }
+
+                Button {
+                    showMoveContainer = true
+                } label: {
+                    Label("Move Container", systemImage: "arrow.right")
+                }
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Delete Container", systemImage: "trash")
+                }
+            }
         }
         .navigationTitle(container.name)
         .fullScreenCover(isPresented: $showBubbleGrid) {
@@ -166,6 +195,17 @@ struct ContainerDetailView: View {
                         showAddItem = true
                     } label: {
                         Label("Add Item", systemImage: "shippingbox")
+                    }
+                    Divider()
+                    Button {
+                        showBulkCaptureItems = true
+                    } label: {
+                        Label("Bulk Add Items", systemImage: "camera.on.rectangle")
+                    }
+                    Button {
+                        showBulkCaptureContainers = true
+                    } label: {
+                        Label("Bulk Add Sub-containers", systemImage: "camera.on.rectangle.fill")
                     }
                     Divider()
                     Button {
@@ -244,6 +284,12 @@ struct ContainerDetailView: View {
                 MoveContainerView(container: container)
             }
         }
+        .fullScreenCover(isPresented: $showBulkCaptureItems) {
+            BulkCaptureView(mode: .items, targetContainer: container)
+        }
+        .fullScreenCover(isPresented: $showBulkCaptureContainers) {
+            BulkCaptureView(mode: .containers, targetContainer: container)
+        }
         .fullScreenCover(isPresented: $showCamera) {
             CameraView { capturedImage in
                 let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
@@ -267,6 +313,9 @@ struct ContainerDetailView: View {
                     type: "container"
                 )
             ])
+            .onAppear {
+                container.lastLabelPrintedAt = .now
+            }
         }
     }
 

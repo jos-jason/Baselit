@@ -14,36 +14,117 @@ struct BatchLabelView: View {
     @State private var generatedPDFData: Data?
     @State private var isGenerating = false
 
-    // MARK: - Computed Properties
+    // MARK: - Unified Entry
 
-    private var filteredContainers: [Container] {
-        guard !searchText.isEmpty else { return containers }
-        return containers.filter { container in
-            container.name.localizedCaseInsensitiveContains(searchText) ||
-            container.identifier.localizedCaseInsensitiveContains(searchText)
+    /// Wraps either a Container or Item so we can sort/group them together.
+    private enum LabelEntry: Identifiable {
+        case container(Container)
+        case item(Item)
+
+        var id: PersistentIdentifier {
+            switch self {
+            case .container(let c): c.persistentModelID
+            case .item(let i): i.persistentModelID
+            }
+        }
+
+        var name: String {
+            switch self {
+            case .container(let c): c.name
+            case .item(let i): i.name
+            }
+        }
+
+        var identifier: String {
+            switch self {
+            case .container(let c): c.identifier
+            case .item(let i): i.identifier
+            }
+        }
+
+        var lastLabelPrintedAt: Date? {
+            switch self {
+            case .container(let c): c.lastLabelPrintedAt
+            case .item(let i): i.lastLabelPrintedAt
+            }
+        }
+
+        var breadcrumbComponents: [String] {
+            switch self {
+            case .container(let c): c.breadcrumbComponents.dropLast().map { $0 }
+            case .item(let i): i.breadcrumbComponents
+            }
+        }
+
+        var iconName: String {
+            switch self {
+            case .container: "archivebox"
+            case .item: "shippingbox"
+            }
+        }
+
+        var isContainer: Bool {
+            if case .container = self { return true }
+            return false
         }
     }
 
-    private var filteredItems: [Item] {
-        guard !searchText.isEmpty else { return items }
-        return items.filter { item in
-            item.name.localizedCaseInsensitiveContains(searchText) ||
-            item.identifier.localizedCaseInsensitiveContains(searchText)
+    /// Groups entries by print status for display.
+    private struct LabelGroup: Identifiable {
+        let id: String
+        let title: String
+        let entries: [LabelEntry]
+    }
+
+    // MARK: - Computed Properties
+
+    private var allEntries: [LabelEntry] {
+        let filtered: [LabelEntry]
+        if searchText.isEmpty {
+            filtered = containers.map { .container($0) } + items.map { .item($0) }
+        } else {
+            let fc = containers.filter {
+                $0.name.localizedCaseInsensitiveContains(searchText) ||
+                $0.identifier.localizedCaseInsensitiveContains(searchText)
+            }.map { LabelEntry.container($0) }
+            let fi = items.filter {
+                $0.name.localizedCaseInsensitiveContains(searchText) ||
+                $0.identifier.localizedCaseInsensitiveContains(searchText)
+            }.map { LabelEntry.item($0) }
+            filtered = fc + fi
         }
+        return filtered
+    }
+
+    private var groupedEntries: [LabelGroup] {
+        let neverPrinted = allEntries.filter { $0.lastLabelPrintedAt == nil }
+            .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        let printed = allEntries.filter { $0.lastLabelPrintedAt != nil }
+            .sorted { ($0.lastLabelPrintedAt ?? .distantPast) > ($1.lastLabelPrintedAt ?? .distantPast) }
+
+        var groups: [LabelGroup] = []
+        if !neverPrinted.isEmpty {
+            groups.append(LabelGroup(id: "never", title: "Never Printed", entries: neverPrinted))
+        }
+        if !printed.isEmpty {
+            groups.append(LabelGroup(id: "printed", title: "Previously Printed", entries: printed))
+        }
+        return groups
     }
 
     private var totalSelectedCount: Int {
         selectedContainerIDs.count + selectedItemIDs.count
     }
 
-    private var allFilteredContainersSelected: Bool {
-        !filteredContainers.isEmpty &&
-        filteredContainers.allSatisfy { selectedContainerIDs.contains($0.persistentModelID) }
+    private func isSelected(_ entry: LabelEntry) -> Bool {
+        switch entry {
+        case .container(let c): selectedContainerIDs.contains(c.persistentModelID)
+        case .item(let i): selectedItemIDs.contains(i.persistentModelID)
+        }
     }
 
-    private var allFilteredItemsSelected: Bool {
-        !filteredItems.isEmpty &&
-        filteredItems.allSatisfy { selectedItemIDs.contains($0.persistentModelID) }
+    private func allSelected(in group: LabelGroup) -> Bool {
+        !group.entries.isEmpty && group.entries.allSatisfy { isSelected($0) }
     }
 
     // MARK: - Body
@@ -51,42 +132,17 @@ struct BatchLabelView: View {
     var body: some View {
         NavigationStack {
             List {
-                if !filteredContainers.isEmpty {
+                ForEach(groupedEntries) { group in
                     Section {
-                        ForEach(filteredContainers) { container in
-                            HStack(spacing: 12) {
-                                Image(systemName: selectedContainerIDs.contains(container.persistentModelID)
-                                      ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selectedContainerIDs.contains(container.persistentModelID)
-                                                     ? .primary : .secondary)
-                                    .font(.title3)
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(container.name)
-                                        .font(.headline)
-                                    Text(container.identifier)
-                                        .font(.caption)
-                                        .fontDesign(.monospaced)
-                                        .foregroundStyle(.tertiary)
-                                    BreadcrumbView(components: container.breadcrumbComponents.dropLast().map { $0 })
-                                }
-
-                                Spacer()
-
-                                Image(systemName: "archivebox")
-                                    .foregroundStyle(.secondary)
-                                    .font(.caption)
-                            }
-                            .padding(.vertical, 2)
-                            .contentShape(Rectangle())
-                            .onTapGesture { toggleContainer(container) }
+                        ForEach(group.entries) { entry in
+                            entryRow(entry)
                         }
                     } header: {
                         HStack {
-                            Text("Containers")
+                            Text(group.title)
                             Spacer()
-                            Button(allFilteredContainersSelected ? "Deselect All" : "Select All") {
-                                toggleAllContainers()
+                            Button(allSelected(in: group) ? "Deselect All" : "Select All") {
+                                toggleAll(in: group)
                             }
                             .font(.caption)
                             .textCase(nil)
@@ -94,50 +150,7 @@ struct BatchLabelView: View {
                     }
                 }
 
-                if !filteredItems.isEmpty {
-                    Section {
-                        ForEach(filteredItems) { item in
-                            HStack(spacing: 12) {
-                                Image(systemName: selectedItemIDs.contains(item.persistentModelID)
-                                      ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selectedItemIDs.contains(item.persistentModelID)
-                                                     ? .primary : .secondary)
-                                    .font(.title3)
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.name)
-                                        .font(.headline)
-                                    Text(item.identifier)
-                                        .font(.caption)
-                                        .fontDesign(.monospaced)
-                                        .foregroundStyle(.tertiary)
-                                    BreadcrumbView(components: item.breadcrumbComponents)
-                                }
-
-                                Spacer()
-
-                                Image(systemName: "shippingbox")
-                                    .foregroundStyle(.secondary)
-                                    .font(.caption)
-                            }
-                            .padding(.vertical, 2)
-                            .contentShape(Rectangle())
-                            .onTapGesture { toggleItem(item) }
-                        }
-                    } header: {
-                        HStack {
-                            Text("Items")
-                            Spacer()
-                            Button(allFilteredItemsSelected ? "Deselect All" : "Select All") {
-                                toggleAllItems()
-                            }
-                            .font(.caption)
-                            .textCase(nil)
-                        }
-                    }
-                }
-
-                if filteredContainers.isEmpty && filteredItems.isEmpty {
+                if allEntries.isEmpty {
                     ContentUnavailableView {
                         Label("No Results", systemImage: "magnifyingglass")
                     } description: {
@@ -180,6 +193,41 @@ struct BatchLabelView: View {
         }
     }
 
+    // MARK: - Row View
+
+    private func entryRow(_ entry: LabelEntry) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: isSelected(entry) ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected(entry) ? .primary : .secondary)
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.name)
+                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(entry.identifier)
+                        .font(.caption)
+                        .fontDesign(.monospaced)
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: entry.iconName)
+                        .foregroundStyle(.tertiary)
+                        .font(.caption2)
+                }
+                BreadcrumbView(components: entry.breadcrumbComponents)
+                if let printedAt = entry.lastLabelPrintedAt {
+                    Text("Printed \(printedAt, format: .relative(presentation: .named))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture { toggle(entry) }
+    }
+
     // MARK: - Actions
 
     private func loadData() {
@@ -192,42 +240,39 @@ struct BatchLabelView: View {
         }
     }
 
-    private func toggleContainer(_ container: Container) {
-        if selectedContainerIDs.contains(container.persistentModelID) {
-            selectedContainerIDs.remove(container.persistentModelID)
-        } else {
-            selectedContainerIDs.insert(container.persistentModelID)
-        }
-    }
-
-    private func toggleItem(_ item: Item) {
-        if selectedItemIDs.contains(item.persistentModelID) {
-            selectedItemIDs.remove(item.persistentModelID)
-        } else {
-            selectedItemIDs.insert(item.persistentModelID)
-        }
-    }
-
-    private func toggleAllContainers() {
-        if allFilteredContainersSelected {
-            for container in filteredContainers {
-                selectedContainerIDs.remove(container.persistentModelID)
+    private func toggle(_ entry: LabelEntry) {
+        switch entry {
+        case .container(let c):
+            if selectedContainerIDs.contains(c.persistentModelID) {
+                selectedContainerIDs.remove(c.persistentModelID)
+            } else {
+                selectedContainerIDs.insert(c.persistentModelID)
             }
-        } else {
-            for container in filteredContainers {
-                selectedContainerIDs.insert(container.persistentModelID)
+        case .item(let i):
+            if selectedItemIDs.contains(i.persistentModelID) {
+                selectedItemIDs.remove(i.persistentModelID)
+            } else {
+                selectedItemIDs.insert(i.persistentModelID)
             }
         }
     }
 
-    private func toggleAllItems() {
-        if allFilteredItemsSelected {
-            for item in filteredItems {
-                selectedItemIDs.remove(item.persistentModelID)
-            }
-        } else {
-            for item in filteredItems {
-                selectedItemIDs.insert(item.persistentModelID)
+    private func toggleAll(in group: LabelGroup) {
+        let allSel = allSelected(in: group)
+        for entry in group.entries {
+            switch entry {
+            case .container(let c):
+                if allSel {
+                    selectedContainerIDs.remove(c.persistentModelID)
+                } else {
+                    selectedContainerIDs.insert(c.persistentModelID)
+                }
+            case .item(let i):
+                if allSel {
+                    selectedItemIDs.remove(i.persistentModelID)
+                } else {
+                    selectedItemIDs.insert(i.persistentModelID)
+                }
             }
         }
     }
@@ -251,6 +296,14 @@ struct BatchLabelView: View {
                 identifier: item.identifier,
                 type: "item"
             ))
+        }
+
+        let now = Date.now
+        for container in containers where selectedContainerIDs.contains(container.persistentModelID) {
+            container.lastLabelPrintedAt = now
+        }
+        for item in items where selectedItemIDs.contains(item.persistentModelID) {
+            item.lastLabelPrintedAt = now
         }
 
         Task.detached {

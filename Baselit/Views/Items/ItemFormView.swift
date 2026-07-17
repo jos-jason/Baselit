@@ -13,10 +13,13 @@ struct ItemFormView: View {
     var location: Location?
     var container: Container?
 
+    @Query(sort: \House.name) private var houses: [House]
+    @Query(sort: \Container.name) private var allContainers: [Container]
+
     @State private var name = ""
     @State private var itemDescription = ""
     @State private var category: ItemCategory?
-    @State private var color: ItemColor?
+    @State private var selectedColors: Set<ItemColor> = []
     @State private var quantity = 1
     @State private var brand = ""
     @State private var model = ""
@@ -28,9 +31,33 @@ struct ItemFormView: View {
     @State private var showCamera = false
     @State private var isProcessingPhoto = false
     @State private var showOptionalFields = false
+    @State private var showMoveSheet = false
+
+    // Location selection state (for create mode)
+    @State private var selectedHouse: House?
+    @State private var selectedLocation: Location?
+    @State private var selectedContainer: Container?
 
     private var isEditing: Bool { editingItem != nil }
     private var isValid: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    private var availableLocations: [Location] {
+        selectedHouse?.locations.sorted(by: { $0.name < $1.name }) ?? []
+    }
+
+    private var availableContainers: [Container] {
+        if let selectedLocation {
+            return allContainers.filter {
+                $0.resolvedLocation?.persistentModelID == selectedLocation.persistentModelID
+            }.sorted(by: { $0.breadcrumbPath < $1.breadcrumbPath })
+        }
+        if selectedHouse != nil {
+            return allContainers.filter {
+                $0.resolvedHouse?.persistentModelID == selectedHouse?.persistentModelID
+            }.sorted(by: { $0.breadcrumbPath < $1.breadcrumbPath })
+        }
+        return allContainers.sorted(by: { $0.breadcrumbPath < $1.breadcrumbPath })
+    }
 
     var body: some View {
         Form {
@@ -47,10 +74,29 @@ struct ItemFormView: View {
                         Text(cat.displayName).tag(cat as ItemCategory?)
                     }
                 }
-                Picker("Color", selection: $color) {
-                    Text("None").tag(nil as ItemColor?)
-                    ForEach(ItemColor.allCases) { c in
-                        Text(c.displayName).tag(c as ItemColor?)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Colors")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    FlowLayout(spacing: 8) {
+                        ForEach(ItemColor.allCases) { color in
+                            Button {
+                                if selectedColors.contains(color) {
+                                    selectedColors.remove(color)
+                                } else {
+                                    selectedColors.insert(color)
+                                }
+                            } label: {
+                                Text(color.displayName)
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(selectedColors.contains(color) ? Color.accentColor : Color(.systemGray5))
+                                    .foregroundStyle(selectedColors.contains(color) ? .white : .primary)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -92,6 +138,57 @@ struct ItemFormView: View {
                 }
             }
 
+            // Location section — pickers for create mode, move button for edit mode
+            if isEditing {
+                Section("Location") {
+                    if let item = editingItem {
+                        LabeledContent("Current Location") {
+                            Text(item.breadcrumbPath)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Button {
+                        showMoveSheet = true
+                    } label: {
+                        Label("Move Item", systemImage: "arrow.right")
+                    }
+                }
+            } else {
+                Section("Location") {
+                    Picker("House", selection: $selectedHouse) {
+                        Text("None").tag(nil as House?)
+                        ForEach(houses) { house in
+                            Text(house.name).tag(house as House?)
+                        }
+                    }
+                    .onChange(of: selectedHouse) {
+                        selectedLocation = nil
+                        selectedContainer = nil
+                    }
+
+                    if selectedHouse != nil && !availableLocations.isEmpty {
+                        Picker("Location", selection: $selectedLocation) {
+                            Text("None").tag(nil as Location?)
+                            ForEach(availableLocations) { loc in
+                                Text(loc.name).tag(loc as Location?)
+                            }
+                        }
+                        .onChange(of: selectedLocation) {
+                            selectedContainer = nil
+                        }
+                    }
+
+                    if !availableContainers.isEmpty {
+                        Picker("Container", selection: $selectedContainer) {
+                            Text("None (directly in location)").tag(nil as Container?)
+                            ForEach(availableContainers) { c in
+                                Text(c.name).tag(c as Container?)
+                            }
+                        }
+                    }
+                }
+            }
+
             Section("Notes") {
                 TextField("Notes", text: $notes, axis: .vertical)
                     .lineLimit(3...6)
@@ -122,6 +219,23 @@ struct ItemFormView: View {
         .onAppear {
             if let item = editingItem {
                 populateFrom(item)
+            } else {
+                // Pre-populate location selections from passed-in location/container
+                if let container {
+                    selectedContainer = container
+                    selectedLocation = container.resolvedLocation
+                    selectedHouse = container.resolvedHouse
+                } else if let location {
+                    selectedLocation = location
+                    selectedHouse = location.resolvedHouse
+                }
+            }
+        }
+        .sheet(isPresented: $showMoveSheet) {
+            if let item = editingItem {
+                NavigationStack {
+                    MoveItemView(item: item)
+                }
             }
         }
         .fullScreenCover(isPresented: $showCamera) {
@@ -138,7 +252,7 @@ struct ItemFormView: View {
         name = item.name
         itemDescription = item.itemDescription ?? ""
         category = item.category
-        color = item.color
+        selectedColors = Set(item.colors)
         quantity = item.quantity
         brand = item.brand ?? ""
         model = item.model ?? ""
@@ -161,12 +275,12 @@ struct ItemFormView: View {
         } else {
             item = Item(name: trimmedName)
             modelContext.insert(item)
-            // Set location
-            if let container {
-                item.container = container
+            // Set location from pickers
+            if let selectedContainer {
+                item.container = selectedContainer
                 item.location = nil
-            } else if let location {
-                item.location = location
+            } else if let selectedLocation {
+                item.location = selectedLocation
                 item.container = nil
             }
         }
@@ -174,7 +288,7 @@ struct ItemFormView: View {
         item.name = trimmedName
         item.itemDescription = itemDescription.isEmpty ? nil : itemDescription
         item.category = category
-        item.color = color
+        item.colors = Array(selectedColors)
         item.quantity = quantity
         item.brand = brand.isEmpty ? nil : brand
         item.model = model.isEmpty ? nil : model
@@ -279,4 +393,52 @@ private struct FormPhotoThumbnail: View {
         }
     }
 }
+
+/// A simple wrapping flow layout that arranges views horizontally,
+/// moving to the next row when content exceeds the available width.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var height: CGFloat = 0
+        for (index, row) in rows.enumerated() {
+            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+            height += rowHeight
+            if index < rows.count - 1 { height += spacing }
+        }
+        return CGSize(width: proposal.width ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+            var x = bounds.minX
+            for subview in row {
+                let size = subview.sizeThatFits(.unspecified)
+                subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += rowHeight + spacing
+        }
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutSubviews.Element]] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [[LayoutSubviews.Element]] = [[]]
+        var currentWidth: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentWidth + size.width > maxWidth && !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                currentWidth = 0
+            }
+            rows[rows.count - 1].append(subview)
+            currentWidth += size.width + spacing
+        }
+        return rows
+    }
+}
+
 

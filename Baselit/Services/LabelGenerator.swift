@@ -96,175 +96,230 @@ enum LabelGenerator {
                 withAttributes: idAttrs
             )
 
-            // Thin border
+            // Corner bracket marks
+            let gc = ctx.cgContext
             UIColor.lightGray.setStroke()
-            let borderRect = CGRect(
-                x: 1, y: 1,
-                width: labelWidth - 2, height: labelHeight - 2
-            )
-            ctx.cgContext.setLineWidth(1)
-            ctx.cgContext.stroke(borderRect)
+            gc.setLineWidth(1)
+            let bracketLen: CGFloat = 20
+            let r: CGFloat = 6 // corner radius
+            let inset: CGFloat = 2
+
+            // Top-left
+            gc.move(to: CGPoint(x: inset, y: inset + bracketLen))
+            gc.addLine(to: CGPoint(x: inset, y: inset + r))
+            gc.addQuadCurve(to: CGPoint(x: inset + r, y: inset),
+                            control: CGPoint(x: inset, y: inset))
+            gc.addLine(to: CGPoint(x: inset + bracketLen, y: inset))
+            gc.strokePath()
+
+            // Top-right
+            gc.move(to: CGPoint(x: labelWidth - inset - bracketLen, y: inset))
+            gc.addLine(to: CGPoint(x: labelWidth - inset - r, y: inset))
+            gc.addQuadCurve(to: CGPoint(x: labelWidth - inset, y: inset + r),
+                            control: CGPoint(x: labelWidth - inset, y: inset))
+            gc.addLine(to: CGPoint(x: labelWidth - inset, y: inset + bracketLen))
+            gc.strokePath()
+
+            // Bottom-left
+            gc.move(to: CGPoint(x: inset, y: labelHeight - inset - bracketLen))
+            gc.addLine(to: CGPoint(x: inset, y: labelHeight - inset - r))
+            gc.addQuadCurve(to: CGPoint(x: inset + r, y: labelHeight - inset),
+                            control: CGPoint(x: inset, y: labelHeight - inset))
+            gc.addLine(to: CGPoint(x: inset + bracketLen, y: labelHeight - inset))
+            gc.strokePath()
+
+            // Bottom-right
+            gc.move(to: CGPoint(x: labelWidth - inset - bracketLen, y: labelHeight - inset))
+            gc.addLine(to: CGPoint(x: labelWidth - inset - r, y: labelHeight - inset))
+            gc.addQuadCurve(to: CGPoint(x: labelWidth - inset, y: labelHeight - inset - r),
+                            control: CGPoint(x: labelWidth - inset, y: labelHeight - inset))
+            gc.addLine(to: CGPoint(x: labelWidth - inset, y: labelHeight - inset - bracketLen))
+            gc.strokePath()
         }
     }
 
-    /// Generates a rounded-style QR code UIImage from a string payload.
+    /// Generates a rounded-style QR code UIImage that remains scannable.
     private static func generateQRCode(from string: String) -> UIImage {
         let ciContext = CIContext()
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(string.utf8)
-        filter.correctionLevel = "M"
+        filter.correctionLevel = "H"
 
-        guard let ciImage = filter.outputImage else {
-            return UIImage(systemName: "qrcode") ?? UIImage()
-        }
+        guard let ciImage = filter.outputImage,
+              let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent)
+        else { return UIImage(systemName: "qrcode") ?? UIImage() }
 
-        // Render at 1x so each pixel = one QR module
-        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
-            return UIImage(systemName: "qrcode") ?? UIImage()
-        }
+        let rawGrid = extractModuleGrid(from: cgImage, size: cgImage.width)
 
-        let moduleCount = cgImage.width
-        let grid = extractModuleGrid(from: cgImage, size: moduleCount)
+        // CIFilter adds a 1-module quiet zone border — strip it so standard QR positions work
+        let quiet = detectQuietZone(rawGrid)
+        let grid = stripQuietZone(rawGrid, border: quiet)
+        let moduleCount = grid.count
+        let alignCenters = alignmentPatternCenters(moduleCount: moduleCount)
 
-        // Draw the rounded QR code
-        let moduleSize: CGFloat = 10
-        let imageSize = CGFloat(moduleCount) * moduleSize
-        let cornerRadius = moduleSize * 0.38
+        let m: CGFloat = 10 // module size in points
+        let imageSize = CGFloat(moduleCount) * m
+        let r = m * 0.35 // corner radius for data modules
 
-        let renderer = UIGraphicsImageRenderer(
-            size: CGSize(width: imageSize, height: imageSize)
-        )
-
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: imageSize, height: imageSize))
         return renderer.image { ctx in
             let gc = ctx.cgContext
-
             UIColor.white.setFill()
             gc.fill(CGRect(x: 0, y: 0, width: imageSize, height: imageSize))
-
             UIColor.black.setFill()
 
-            // Draw the three finder patterns with rounded styling
-            drawFinderPattern(in: gc, row: 0, col: 0, moduleSize: moduleSize)
-            drawFinderPattern(in: gc, row: 0, col: moduleCount - 7, moduleSize: moduleSize)
-            drawFinderPattern(in: gc, row: moduleCount - 7, col: 0, moduleSize: moduleSize)
+            // Rounded finder patterns (three corners)
+            drawFinderPattern(in: gc, row: 0, col: 0, m: m)
+            drawFinderPattern(in: gc, row: 0, col: moduleCount - 7, m: m)
+            drawFinderPattern(in: gc, row: moduleCount - 7, col: 0, m: m)
 
-            // Draw data modules (skip finder pattern areas)
+            // Rounded alignment patterns
+            for c in alignCenters {
+                drawAlignmentPattern(in: gc, centerRow: c.row, centerCol: c.col, m: m)
+            }
+
+            // All remaining dark modules — rounded corners on exposed edges
             for row in 0..<moduleCount {
                 for col in 0..<moduleCount {
                     guard grid[row][col] else { continue }
-                    if isInFinderPatternArea(row: row, col: col, moduleCount: moduleCount) { continue }
+                    if isInFinderPattern(row: row, col: col, moduleCount: moduleCount) { continue }
+                    if isInAlignmentPattern(row: row, col: col, centers: alignCenters) { continue }
 
-                    let hasRight = col + 1 < moduleCount && grid[row][col + 1]
-                        && !isInFinderPatternArea(row: row, col: col + 1, moduleCount: moduleCount)
+                    let x = CGFloat(col) * m
+                    let y = CGFloat(row) * m
+                    let rect = CGRect(x: x, y: y, width: m, height: m)
+
+                    let hasTop = row > 0 && grid[row - 1][col]
                     let hasBottom = row + 1 < moduleCount && grid[row + 1][col]
-                        && !isInFinderPatternArea(row: row + 1, col: col, moduleCount: moduleCount)
-                    let hasLeft = col - 1 >= 0 && grid[row][col - 1]
-                        && !isInFinderPatternArea(row: row, col: col - 1, moduleCount: moduleCount)
-                    let hasTop = row - 1 >= 0 && grid[row - 1][col]
-                        && !isInFinderPatternArea(row: row - 1, col: col, moduleCount: moduleCount)
+                    let hasLeft = col > 0 && grid[row][col - 1]
+                    let hasRight = col + 1 < moduleCount && grid[row][col + 1]
 
-                    let x = CGFloat(col) * moduleSize
-                    let y = CGFloat(row) * moduleSize
-                    let rect = CGRect(x: x, y: y, width: moduleSize, height: moduleSize)
-
-                    // Isolated dot: draw as circle
-                    if !hasRight && !hasBottom && !hasLeft && !hasTop {
-                        let inset = moduleSize * 0.1
-                        let ovalRect = rect.insetBy(dx: inset, dy: inset)
-                        gc.fillEllipse(in: ovalRect)
-                        continue
-                    }
-
-                    // Connected module: use selectively rounded corners
                     var corners: UIRectCorner = []
                     if !hasTop && !hasLeft { corners.insert(.topLeft) }
                     if !hasTop && !hasRight { corners.insert(.topRight) }
                     if !hasBottom && !hasLeft { corners.insert(.bottomLeft) }
                     if !hasBottom && !hasRight { corners.insert(.bottomRight) }
 
-                    let path = UIBezierPath(
-                        roundedRect: rect,
-                        byRoundingCorners: corners,
-                        cornerRadii: CGSize(width: cornerRadius, height: cornerRadius)
-                    )
-                    path.fill()
+                    if corners.isEmpty {
+                        gc.fill(rect)
+                    } else {
+                        UIBezierPath(roundedRect: rect, byRoundingCorners: corners,
+                                     cornerRadii: CGSize(width: r, height: r)).fill()
+                    }
                 }
             }
         }
     }
 
-    /// Extracts a boolean grid from a 1x-scale QR code CGImage.
+    // MARK: - QR Helpers
+
     private static func extractModuleGrid(from cgImage: CGImage, size: Int) -> [[Bool]] {
         let colorSpace = CGColorSpaceCreateDeviceGray()
-        var pixelData = [UInt8](repeating: 0, count: size * size)
-        guard let context = CGContext(
-            data: &pixelData,
-            width: size,
-            height: size,
-            bitsPerComponent: 8,
-            bytesPerRow: size,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
-        ) else {
-            return Array(repeating: Array(repeating: false, count: size), count: size)
-        }
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+        var pixels = [UInt8](repeating: 0, count: size * size)
+        guard let ctx = CGContext(data: &pixels, width: size, height: size,
+                                  bitsPerComponent: 8, bytesPerRow: size,
+                                  space: colorSpace, bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        else { return Array(repeating: Array(repeating: false, count: size), count: size) }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
 
-        var grid = Array(repeating: Array(repeating: false, count: size), count: size)
-        for row in 0..<size {
-            for col in 0..<size {
-                // Dark module = pixel value < 128
-                grid[row][col] = pixelData[row * size + col] < 128
+        return (0..<size).map { row in
+            (0..<size).map { col in pixels[row * size + col] < 128 }
+        }
+    }
+
+    /// Detects how many rows/cols of quiet zone border CIFilter added.
+    private static func detectQuietZone(_ grid: [[Bool]]) -> Int {
+        let size = grid.count
+        guard size > 0 else { return 0 }
+        var border = 0
+        for i in 0..<size {
+            if grid[i].allSatisfy({ !$0 }) {
+                border += 1
+            } else {
+                break
             }
         }
-        return grid
+        return border
     }
 
-    /// Checks if a module position falls within a finder pattern area (including separator).
-    private static func isInFinderPatternArea(row: Int, col: Int, moduleCount: Int) -> Bool {
-        let finderSize = 8 // 7 modules + 1 separator
-        // Top-left
-        if row < finderSize && col < finderSize { return true }
-        // Top-right
-        if row < finderSize && col >= moduleCount - finderSize { return true }
-        // Bottom-left
-        if row >= moduleCount - finderSize && col < finderSize { return true }
-        return false
+    /// Strips `border` rows/cols from all sides of the grid.
+    private static func stripQuietZone(_ grid: [[Bool]], border: Int) -> [[Bool]] {
+        guard border > 0 else { return grid }
+        let size = grid.count
+        let end = size - border
+        guard end > border else { return grid }
+        return (border..<end).map { row in
+            Array(grid[row][border..<end])
+        }
     }
 
-    /// Draws a single rounded finder pattern (the big squares in QR corners).
-    private static func drawFinderPattern(in gc: CGContext, row: Int, col: Int, moduleSize: CGFloat) {
-        let x = CGFloat(col) * moduleSize
-        let y = CGFloat(row) * moduleSize
+    private static func isInFinderPattern(row: Int, col: Int, moduleCount: Int) -> Bool {
+        (row < 7 && col < 7) ||
+        (row < 7 && col >= moduleCount - 7) ||
+        (row >= moduleCount - 7 && col < 7)
+    }
 
-        let outerRadius = moduleSize * 1.2
-        let innerRadius = moduleSize * 0.8
-        let dotRadius = moduleSize * 0.5
+    private static func isInAlignmentPattern(row: Int, col: Int, centers: [(row: Int, col: Int)]) -> Bool {
+        centers.contains { abs(row - $0.row) <= 2 && abs(col - $0.col) <= 2 }
+    }
 
-        // Outer ring (7x7)
-        let outerRect = CGRect(x: x, y: y, width: 7 * moduleSize, height: 7 * moduleSize)
-        let outerPath = UIBezierPath(roundedRect: outerRect, cornerRadius: outerRadius)
-        let innerCutout = CGRect(
-            x: x + moduleSize,
-            y: y + moduleSize,
-            width: 5 * moduleSize,
-            height: 5 * moduleSize
-        )
-        let innerCutoutPath = UIBezierPath(roundedRect: innerCutout, cornerRadius: innerRadius)
-        outerPath.append(innerCutoutPath.reversing())
+    private static func alignmentPatternCenters(moduleCount: Int) -> [(row: Int, col: Int)] {
+        let version = (moduleCount - 17) / 4
+        guard version >= 2 else { return [] }
 
-        UIColor.black.setFill()
-        outerPath.fill()
+        let table: [[Int]] = [
+            [], [],
+            [6, 18], [6, 22], [6, 26], [6, 30], [6, 34],
+            [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50],
+        ]
+        let positions = version < table.count ? table[version] : table.last!
 
-        // Inner square (3x3)
-        let centerRect = CGRect(
-            x: x + 2 * moduleSize,
-            y: y + 2 * moduleSize,
-            width: 3 * moduleSize,
-            height: 3 * moduleSize
-        )
-        let centerPath = UIBezierPath(roundedRect: centerRect, cornerRadius: dotRadius)
-        centerPath.fill()
+        var centers: [(row: Int, col: Int)] = []
+        for r in positions {
+            for c in positions {
+                if r < 8 && c < 8 { continue }
+                if r < 8 && c >= moduleCount - 8 { continue }
+                if r >= moduleCount - 8 && c < 8 { continue }
+                centers.append((row: r, col: c))
+            }
+        }
+        return centers
+    }
+
+    /// Draws a 7x7 finder pattern with rounded corners.
+    private static func drawFinderPattern(in gc: CGContext, row: Int, col: Int, m: CGFloat) {
+        let x = CGFloat(col) * m
+        let y = CGFloat(row) * m
+
+        // Outer ring: rounded 7x7 with 5x5 cutout
+        let outer = UIBezierPath(roundedRect: CGRect(x: x, y: y, width: 7 * m, height: 7 * m),
+                                 cornerRadius: m * 0.8)
+        let cutout = UIBezierPath(roundedRect: CGRect(x: x + m, y: y + m, width: 5 * m, height: 5 * m),
+                                  cornerRadius: m * 0.5)
+        outer.append(cutout.reversing())
+        outer.fill()
+
+        // Center: rounded 3x3
+        UIBezierPath(roundedRect: CGRect(x: x + 2 * m, y: y + 2 * m, width: 3 * m, height: 3 * m),
+                     cornerRadius: m * 0.4).fill()
+    }
+
+    /// Draws a 5x5 alignment pattern with rounded corners.
+    private static func drawAlignmentPattern(in gc: CGContext, centerRow: Int, centerCol: Int, m: CGFloat) {
+        let x = CGFloat(centerCol - 2) * m
+        let y = CGFloat(centerRow - 2) * m
+
+        // Outer ring: rounded 5x5 with 3x3 cutout
+        let outer = UIBezierPath(roundedRect: CGRect(x: x, y: y, width: 5 * m, height: 5 * m),
+                                 cornerRadius: m * 0.5)
+        let cutout = UIBezierPath(roundedRect: CGRect(x: x + m, y: y + m, width: 3 * m, height: 3 * m),
+                                  cornerRadius: m * 0.3)
+        outer.append(cutout.reversing())
+        outer.fill()
+
+        // Center dot: rounded 1x1
+        UIBezierPath(roundedRect: CGRect(x: x + 2 * m, y: y + 2 * m, width: m, height: m),
+                     cornerRadius: m * 0.2).fill()
     }
 
     /// Generates a multi-page PDF with labels arranged in a 2-column grid on US Letter pages.

@@ -344,7 +344,7 @@ struct ItemRow: View {
                             .background(.fill.tertiary)
                             .clipShape(Capsule())
                     }
-                    if let color = item.color {
+                    ForEach(item.colors) { color in
                         Text(color.displayName)
                             .font(.caption)
                             .padding(.horizontal, 6)

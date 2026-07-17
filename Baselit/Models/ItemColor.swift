@@ -6,6 +6,8 @@ enum ItemColor: String, Codable, CaseIterable, Identifiable {
     case yellow
     case green
     case blue
+    case teal
+    case turquoise
     case purple
     case pink
     case black
