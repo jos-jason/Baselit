@@ -13,6 +13,12 @@ struct BatchLabelView: View {
     @State private var showShareSheet = false
     @State private var generatedPDFData: Data?
     @State private var isGenerating = false
+    @State private var labelSize: LabelSize = .full
+
+    enum LabelSize: String, CaseIterable {
+        case full = "Full"
+        case mini = "Mini"
+    }
 
     // MARK: - Unified Entry
 
@@ -132,6 +138,24 @@ struct BatchLabelView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Picker("Label Size", selection: $labelSize) {
+                        ForEach(LabelSize.allCases, id: \.self) { size in
+                            Text(size.rawValue).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+
+                    if labelSize == .mini {
+                        Text("Compact QR code with identifier only — no item name.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
+                    }
+                }
+
                 ForEach(groupedEntries) { group in
                     Section {
                         ForEach(group.entries) { entry in
@@ -306,8 +330,14 @@ struct BatchLabelView: View {
             item.lastLabelPrintedAt = now
         }
 
+        let useMini = labelSize == .mini
         Task.detached {
-            let pdfData = LabelGenerator.generateLabelSheet(entries: entries)
+            let pdfData: Data
+            if useMini {
+                pdfData = LabelGenerator.generateMiniLabelSheet(entries: entries)
+            } else {
+                pdfData = LabelGenerator.generateLabelSheet(entries: entries)
+            }
             await MainActor.run {
                 generatedPDFData = pdfData
                 isGenerating = false

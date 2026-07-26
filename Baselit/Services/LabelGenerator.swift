@@ -138,6 +138,127 @@ enum LabelGenerator {
         }
     }
 
+    /// Renders a compact mini label with a small QR code, the identifier, and the name in small print.
+    /// Designed for sticking on small items where a full label won't fit.
+    /// Layout: QR code centered on top, identifier directly below, then name in lighter smaller text.
+    static func generateMiniLabel(
+        name: String,
+        identifier: String,
+        type: String
+    ) -> UIImage {
+        let slug = identifier.lowercased().replacingOccurrences(of: " ", with: "-")
+        let payload = "baselit:\(type):\(slug)"
+        let qrImage = generateQRCode(from: payload)
+
+        let qrSize: CGFloat = 60
+        let padding: CGFloat = 8
+        let idFont = UIFont.systemFont(ofSize: 9, weight: .semibold)
+        let nameFont = UIFont.systemFont(ofSize: 7, weight: .regular)
+
+        // Fixed label width based on QR size — text wraps to fit, not the other way around
+        let labelWidth = qrSize + padding * 2
+        let textAreaWidth = labelWidth - padding * 2
+
+        let idRect = (identifier as NSString).boundingRect(
+            with: CGSize(width: textAreaWidth, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin],
+            attributes: [.font: idFont],
+            context: nil
+        )
+        let nameRect = (name as NSString).boundingRect(
+            with: CGSize(width: textAreaWidth, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin],
+            attributes: [.font: nameFont],
+            context: nil
+        )
+
+        // QR + 4pt gap + identifier + 2pt gap + name
+        let labelHeight = padding + qrSize + 4 + idRect.height + 2 + nameRect.height + padding
+
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: labelWidth, height: labelHeight)
+        )
+
+        return renderer.image { ctx in
+            // White background
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: labelWidth, height: labelHeight))
+
+            // QR code centered at the top
+            let qrX = (labelWidth - qrSize) / 2
+            let qrRect = CGRect(x: qrX, y: padding, width: qrSize, height: qrSize)
+            qrImage.draw(in: qrRect)
+
+            // Identifier text centered just below QR code (tight spacing)
+            let idParagraph = NSMutableParagraphStyle()
+            idParagraph.alignment = .center
+            let idAttrs: [NSAttributedString.Key: Any] = [
+                .font: idFont,
+                .foregroundColor: UIColor.darkGray,
+                .paragraphStyle: idParagraph
+            ]
+            let idY = padding + qrSize + 4
+            (identifier as NSString).draw(
+                in: CGRect(x: padding, y: idY, width: textAreaWidth, height: idRect.height),
+                withAttributes: idAttrs
+            )
+
+            // Name text centered below identifier (smaller, lighter, wraps if needed)
+            let nameParagraph = NSMutableParagraphStyle()
+            nameParagraph.alignment = .center
+            let nameAttrs: [NSAttributedString.Key: Any] = [
+                .font: nameFont,
+                .foregroundColor: UIColor.gray,
+                .paragraphStyle: nameParagraph
+            ]
+            let nameY = idY + idRect.height + 2
+            (name as NSString).draw(
+                in: CGRect(x: padding, y: nameY, width: textAreaWidth, height: nameRect.height),
+                withAttributes: nameAttrs
+            )
+
+            // Corner bracket marks
+            let gc = ctx.cgContext
+            UIColor.lightGray.setStroke()
+            gc.setLineWidth(0.5)
+            let bracketLen: CGFloat = 10
+            let r: CGFloat = 3
+            let inset: CGFloat = 1.5
+
+            // Top-left
+            gc.move(to: CGPoint(x: inset, y: inset + bracketLen))
+            gc.addLine(to: CGPoint(x: inset, y: inset + r))
+            gc.addQuadCurve(to: CGPoint(x: inset + r, y: inset),
+                            control: CGPoint(x: inset, y: inset))
+            gc.addLine(to: CGPoint(x: inset + bracketLen, y: inset))
+            gc.strokePath()
+
+            // Top-right
+            gc.move(to: CGPoint(x: labelWidth - inset - bracketLen, y: inset))
+            gc.addLine(to: CGPoint(x: labelWidth - inset - r, y: inset))
+            gc.addQuadCurve(to: CGPoint(x: labelWidth - inset, y: inset + r),
+                            control: CGPoint(x: labelWidth - inset, y: inset))
+            gc.addLine(to: CGPoint(x: labelWidth - inset, y: inset + bracketLen))
+            gc.strokePath()
+
+            // Bottom-left
+            gc.move(to: CGPoint(x: inset, y: labelHeight - inset - bracketLen))
+            gc.addLine(to: CGPoint(x: inset, y: labelHeight - inset - r))
+            gc.addQuadCurve(to: CGPoint(x: inset + r, y: labelHeight - inset),
+                            control: CGPoint(x: inset, y: labelHeight - inset))
+            gc.addLine(to: CGPoint(x: inset + bracketLen, y: labelHeight - inset))
+            gc.strokePath()
+
+            // Bottom-right
+            gc.move(to: CGPoint(x: labelWidth - inset - bracketLen, y: labelHeight - inset))
+            gc.addLine(to: CGPoint(x: labelWidth - inset - r, y: labelHeight - inset))
+            gc.addQuadCurve(to: CGPoint(x: labelWidth - inset, y: labelHeight - inset - r),
+                            control: CGPoint(x: labelWidth - inset, y: labelHeight - inset))
+            gc.addLine(to: CGPoint(x: labelWidth - inset, y: labelHeight - inset - bracketLen))
+            gc.strokePath()
+        }
+    }
+
     /// Generates a rounded-style QR code UIImage that remains scannable.
     private static func generateQRCode(from string: String) -> UIImage {
         let ciContext = CIContext()
@@ -364,6 +485,70 @@ enum LabelGenerator {
                         let destRect = CGRect(x: x, y: y, width: cellWidth, height: cellHeight)
 
                         labelImages[index].draw(in: destRect)
+                        index += 1
+                    }
+                    if index >= labelImages.count { break }
+                }
+            }
+        }
+
+        return data
+    }
+
+    /// Generates a multi-page PDF with compact mini labels arranged in a 4-column grid on US Letter pages.
+    /// - Parameter entries: The labels to generate.
+    /// - Returns: PDF data suitable for sharing or printing.
+    static func generateMiniLabelSheet(entries: [LabelEntry]) -> Data {
+        let pageWidth: CGFloat = 612
+        let pageHeight: CGFloat = 792
+        let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+
+        let columns = 6
+        let margin: CGFloat = 36
+        let cellSpacing: CGFloat = 8
+        let cellWidth = (pageWidth - margin * 2 - cellSpacing * CGFloat(columns - 1)) / CGFloat(columns)
+
+        let labelImages = entries.map { entry in
+            generateMiniLabel(name: entry.name, identifier: entry.identifier, type: entry.type)
+        }
+
+        guard !labelImages.isEmpty else {
+            return UIGraphicsPDFRenderer(bounds: pageRect).pdfData { ctx in ctx.beginPage() }
+        }
+
+        // All mini labels have the same width. Find the tallest one so we can
+        // use a uniform scale factor for every label — keeping QR codes identical.
+        let labelNativeWidth = labelImages[0].size.width
+        let maxNativeHeight = labelImages.map(\.size.height).max() ?? labelImages[0].size.height
+        let scaleFactor = cellWidth / labelNativeWidth
+        let cellHeight = maxNativeHeight * scaleFactor
+
+        let usableHeight = pageHeight - margin * 2
+        let rowsPerPage = Int((usableHeight + cellSpacing) / (cellHeight + cellSpacing))
+
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
+
+        let data = renderer.pdfData { context in
+            var index = 0
+            while index < labelImages.count {
+                context.beginPage()
+
+                for row in 0..<rowsPerPage {
+                    for col in 0..<columns {
+                        guard index < labelImages.count else { break }
+
+                        let img = labelImages[index]
+                        let x = margin + CGFloat(col) * (cellWidth + cellSpacing)
+                        let y = margin + CGFloat(row) * (cellHeight + cellSpacing)
+
+                        // Draw at uniform scale — same width, top-aligned within cell.
+                        // All labels have the same native width, so drawWidth = cellWidth.
+                        // Shorter labels get bottom whitespace, but QR stays the same size.
+                        let drawWidth = cellWidth
+                        let drawHeight = img.size.height * scaleFactor
+                        let destRect = CGRect(x: x, y: y, width: drawWidth, height: drawHeight)
+
+                        img.draw(in: destRect)
                         index += 1
                     }
                     if index >= labelImages.count { break }

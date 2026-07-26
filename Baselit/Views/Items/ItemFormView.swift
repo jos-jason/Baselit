@@ -37,6 +37,9 @@ struct ItemFormView: View {
     @State private var selectedHouse: House?
     @State private var selectedLocation: Location?
     @State private var selectedContainer: Container?
+    
+    /// Guards against cascading onChange handlers clearing pre-populated selections during onAppear.
+    @State private var didFinishInitialSetup = false
 
     private var isEditing: Bool { editingItem != nil }
     private var isValid: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -162,6 +165,7 @@ struct ItemFormView: View {
                         }
                     }
                     .onChange(of: selectedHouse) {
+                        guard didFinishInitialSetup else { return }
                         selectedLocation = nil
                         selectedContainer = nil
                     }
@@ -174,6 +178,7 @@ struct ItemFormView: View {
                             }
                         }
                         .onChange(of: selectedLocation) {
+                            guard didFinishInitialSetup else { return }
                             selectedContainer = nil
                         }
                     }
@@ -222,14 +227,15 @@ struct ItemFormView: View {
             } else {
                 // Pre-populate location selections from passed-in location/container
                 if let container {
-                    selectedContainer = container
-                    selectedLocation = container.resolvedLocation
                     selectedHouse = container.resolvedHouse
+                    selectedLocation = container.resolvedLocation
+                    selectedContainer = container
                 } else if let location {
-                    selectedLocation = location
                     selectedHouse = location.resolvedHouse
+                    selectedLocation = location
                 }
             }
+            didFinishInitialSetup = true
         }
         .sheet(isPresented: $showMoveSheet) {
             if let item = editingItem {
