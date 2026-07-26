@@ -41,19 +41,37 @@ private func rotateAroundAxis(_ p: Point3D, axis: Point3D, angle: Double) -> Poi
     )
 }
 
-/// Distribute `count` points roughly evenly on a unit sphere using a
-/// Fibonacci / golden-angle spiral. Returns points with z in [-1, 1].
+/// Distribute `count` points on a unit sphere using a Fibonacci / golden-angle
+/// spiral. For small counts the points are confined to a tight cap around the
+/// front pole so they cluster visibly near the center. As count grows the cap
+/// opens up to the full sphere.
 private func fibonacciSphere(count: Int) -> [Point3D] {
     guard count > 0 else { return [] }
     if count == 1 { return [Point3D(x: 0, y: 0, z: 1)] }
+
+    // Maximum half-angle (in radians) of the spherical cap measured from the
+    // front pole. Small counts get a tight cone; the cap stays compact through
+    // the mid-range and only opens to the full sphere at higher counts.
+    //   2 items  → ~30°   (cosy cluster)
+    //   5 items  → ~35°
+    //  10 items  → ~45°
+    //  20 items  → ~75°
+    //  40+ items → 180°  (full sphere)
+    let fullSphereCount = 40.0
+    let t = min(Double(count) / fullSphereCount, 1.0)
+    // Steep ease-in (t³) keeps the cap tight for longer
+    let ease = t * t * t
+    let maxTheta = (.pi / 6.0) + (.pi * 5.0 / 6.0) * ease  // 30° → 180°
 
     let goldenRatio = (1.0 + sqrt(5.0)) / 2.0
     var points: [Point3D] = []
     points.reserveCapacity(count)
 
     for i in 0..<count {
-        // Spread latitude uniformly from pole to pole
-        let theta = acos(1.0 - 2.0 * (Double(i) + 0.5) / Double(count))
+        // Distribute uniformly within the spherical cap [0, maxTheta]
+        // Using the area-preserving formula: theta = acos(1 - u*(1-cos(maxTheta)))
+        let u = (Double(i) + 0.5) / Double(count)
+        let theta = acos(1.0 - u * (1.0 - cos(maxTheta)))
         let phi = 2.0 * .pi * Double(i) / goldenRatio
 
         points.append(Point3D(
