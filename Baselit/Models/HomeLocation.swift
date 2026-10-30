@@ -69,4 +69,10 @@ final class HomeLocation {
     var breadcrumbPath: String {
         breadcrumbComponents.joined(separator: " › ")
     }
+
+    /// Whether this home points at exactly the given location and container
+    func matches(location: Location?, container: Container?) -> Bool {
+        self.location?.persistentModelID == location?.persistentModelID &&
+        self.container?.persistentModelID == container?.persistentModelID
+    }
 }

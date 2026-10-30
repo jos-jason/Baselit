@@ -12,6 +12,8 @@ struct ItemDetailView: View {
     @State private var showShareSheet = false
     @State private var showAddedToQueue = false
     @State private var showAddHomeLocation = false
+    /// Bumped each time the home is set, to play a success haptic
+    @State private var homeSetCount = 0
     @Environment(PrintQueueService.self) private var printQueue
 
     var body: some View {
@@ -105,10 +107,15 @@ struct ItemDetailView: View {
                 }
 
                 if item.resolvedHouse != nil {
-                    Button {
-                        setCurrentLocationAsHome()
-                    } label: {
-                        Label("Set Current Location as Home", systemImage: "house.fill")
+                    if isCurrentLocationHome {
+                        Label("Current location is home", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button {
+                            setCurrentLocationAsHome()
+                        } label: {
+                            Label("Set Current Location as Home", systemImage: "house.fill")
+                        }
                     }
                 }
 
@@ -232,6 +239,7 @@ struct ItemDetailView: View {
                 item.lastLabelPrintedAt = .now
             }
         }
+        .sensoryFeedback(.success, trigger: homeSetCount)
         .overlay {
             if showAddedToQueue {
                 addedToQueueOverlay
@@ -239,27 +247,34 @@ struct ItemDetailView: View {
         }
     }
 
-    private func setCurrentLocationAsHome() {
-        guard let house = item.resolvedHouse else { return }
-        // Determine the deepest location and container for the current position
-        let location: Location?
-        let container: Container?
-
+    /// The house, location, and container the item is in right now
+    private var currentSpot: (house: House, location: Location?, container: Container?)? {
+        guard let house = item.resolvedHouse else { return nil }
         if let itemContainer = item.container {
-            container = itemContainer
-            location = itemContainer.resolvedLocation
-        } else {
-            container = nil
-            location = item.location
+            return (house, itemContainer.resolvedLocation, itemContainer)
         }
+        return (house, item.location, nil)
+    }
 
+    /// Whether the item's home for its current house is already where it is now
+    private var isCurrentLocationHome: Bool {
+        guard let spot = currentSpot,
+              let home = item.homeLocations.first(where: {
+                  $0.house?.persistentModelID == spot.house.persistentModelID
+              }) else { return false }
+        return home.matches(location: spot.location, container: spot.container)
+    }
+
+    private func setCurrentLocationAsHome() {
+        guard let spot = currentSpot else { return }
         HomeLocationService.setHomeLocation(
             for: item,
-            house: house,
-            location: location,
-            container: container,
+            house: spot.house,
+            location: spot.location,
+            container: spot.container,
             context: modelContext
         )
+        homeSetCount += 1
     }
 
     private var addedToQueueOverlay: some View {
