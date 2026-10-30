@@ -24,7 +24,7 @@ struct BackupManifest: Codable {
         locations = try container.decode([ExportLocation].self, forKey: .locations)
         containers = try container.decode([ExportContainer].self, forKey: .containers)
         items = try container.decode([ExportItem].self, forKey: .items)
-        tags = try container.decode([ExportTag].self, forKey: .tags)
+        tags = try container.decodeIfPresent([ExportTag].self, forKey: .tags) ?? []
         photos = try container.decode([ExportPhoto].self, forKey: .photos)
         homeLocations = try container.decodeIfPresent([ExportHomeLocation].self, forKey: .homeLocations) ?? []
     }
@@ -97,6 +97,7 @@ struct ExportItem: Codable {
     let containerExportID: UUID?
     let locationExportID: UUID?
     let houseExportID: UUID?
+    /// Legacy: always written empty. Older backups' tags are folded into notes on import.
     let tagExportIDs: [UUID]
 
     /// Backward-compatible decoding: reads new `colors` array or falls back to old `color` string.
@@ -118,7 +119,7 @@ struct ExportItem: Codable {
         containerExportID = try container.decodeIfPresent(UUID.self, forKey: .containerExportID)
         locationExportID = try container.decodeIfPresent(UUID.self, forKey: .locationExportID)
         houseExportID = try container.decodeIfPresent(UUID.self, forKey: .houseExportID)
-        tagExportIDs = try container.decode([UUID].self, forKey: .tagExportIDs)
+        tagExportIDs = try container.decodeIfPresent([UUID].self, forKey: .tagExportIDs) ?? []
 
         // Try new "colors" array first, fall back to old "color" single string
         if let colorsArray = try container.decodeIfPresent([String].self, forKey: .colors) {
@@ -130,7 +131,7 @@ struct ExportItem: Codable {
         }
     }
 
-    init(exportID: UUID, name: String, itemDescription: String?, quantity: Int, brand: String?, model: String?, condition: String?, notes: String?, identifier: String, createdAt: Date, updatedAt: Date, lastLabelPrintedAt: Date?, containerExportID: UUID?, locationExportID: UUID?, houseExportID: UUID?, tagExportIDs: [UUID]) {
+    init(exportID: UUID, name: String, itemDescription: String?, quantity: Int, brand: String?, model: String?, condition: String?, notes: String?, identifier: String, createdAt: Date, updatedAt: Date, lastLabelPrintedAt: Date?, containerExportID: UUID?, locationExportID: UUID?, houseExportID: UUID?) {
         self.exportID = exportID
         self.name = name
         self.itemDescription = itemDescription
@@ -148,7 +149,7 @@ struct ExportItem: Codable {
         self.containerExportID = containerExportID
         self.locationExportID = locationExportID
         self.houseExportID = houseExportID
-        self.tagExportIDs = tagExportIDs
+        self.tagExportIDs = []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -171,13 +172,14 @@ struct ExportItem: Codable {
         try container.encode(tagExportIDs, forKey: .tagExportIDs)
     }
 
-    /// Notes with any category and colors from an older backup appended as keywords
-    var notesWithLegacyKeywords: String? {
-        Item.notes(
-            notes,
-            addingKeywordsFor: category.flatMap { ItemCategory(rawValue: $0) },
-            colors: colors.compactMap { ItemColor(rawValue: $0) }
-        )
+    /// Notes with any category, colors, and tags from an older backup appended as keywords
+    func notesWithLegacyKeywords(tags: [ExportTag]) -> String? {
+        let tagNames = tagExportIDs.compactMap { id in tags.first(where: { $0.exportID == id })?.name }
+        return Item.notes(notes, addingKeywords: Item.legacyKeywords(
+            category: category.flatMap { ItemCategory(rawValue: $0) },
+            colors: colors.compactMap { ItemColor(rawValue: $0) },
+            tagNames: tagNames
+        ))
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -283,7 +285,6 @@ struct ImportResult {
     var locationsImported: Int = 0
     var containersImported: Int = 0
     var itemsImported: Int = 0
-    var tagsImported: Int = 0
     var photosImported: Int = 0
     var homeLocationsImported: Int = 0
     var skipped: Int = 0

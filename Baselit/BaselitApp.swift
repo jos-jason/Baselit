@@ -50,15 +50,18 @@ struct BaselitApp: App {
                 try context.save()
             }
 
-            // Move legacy category and color values into notes as keywords.
+            // Move legacy category, color, and tag values into notes as keywords.
             // Filtered in memory to avoid SwiftData #Predicate issues with enum fields.
             var movedLegacyFields = false
             for item in try context.fetch(FetchDescriptor<Item>()) {
-                if item.moveLegacyCategoryAndColorsToNotes() {
+                if item.moveLegacyFieldsToNotes() {
                     movedLegacyFields = true
                 }
             }
-            if movedLegacyFields {
+            // Tags no longer belong to any item, so remove the leftover records
+            let leftoverTags = try context.fetch(FetchDescriptor<Tag>())
+            for tag in leftoverTags { context.delete(tag) }
+            if movedLegacyFields || !leftoverTags.isEmpty {
                 try context.save()
             }
 

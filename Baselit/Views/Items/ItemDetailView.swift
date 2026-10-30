@@ -74,24 +74,6 @@ struct ItemDetailView: View {
                 }
             }
 
-            // Tags
-            if !item.tags.isEmpty {
-                Section("Tags") {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(item.tags.sorted(by: { $0.name < $1.name })) { tag in
-                                Text(tag.name)
-                                    .font(.caption)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(.fill.tertiary)
-                                    .clipShape(Capsule())
-                            }
-                        }
-                    }
-                }
-            }
-
             // Notes
             if let notes = item.notes, !notes.isEmpty {
                 Section("Notes") {

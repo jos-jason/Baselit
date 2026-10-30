@@ -23,7 +23,6 @@ struct ItemFormView: View {
     @State private var model = ""
     @State private var condition = ""
     @State private var notes = ""
-    @State private var selectedTags: [Tag] = []
     @State private var selectedPhotos: [Photo] = []
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var showCamera = false
@@ -87,10 +86,6 @@ struct ItemFormView: View {
                 TextField("Item name", text: $name)
                 TextField("Description", text: $itemDescription)
                 Stepper("Quantity: \(quantity)", value: $quantity, in: 1...9999)
-            }
-
-            Section("Tags") {
-                TagPicker(selectedTags: $selectedTags)
             }
 
             Section("Photos") {
@@ -422,7 +417,6 @@ struct ItemFormView: View {
         model = item.model ?? ""
         condition = item.condition ?? ""
         notes = item.notes ?? ""
-        selectedTags = item.tags
         selectedPhotos = item.photos
         if !brand.isEmpty || !model.isEmpty || !condition.isEmpty {
             showOptionalFields = true
@@ -462,7 +456,6 @@ struct ItemFormView: View {
         item.model = model.isEmpty ? nil : model
         item.condition = condition.isEmpty ? nil : condition
         item.notes = notes.isEmpty ? nil : notes
-        item.tags = selectedTags
         item.photos = selectedPhotos
         item.updatedAt = .now
 
@@ -657,52 +650,3 @@ private struct FormPhotoThumbnail: View {
         }
     }
 }
-
-/// A simple wrapping flow layout that arranges views horizontally,
-/// moving to the next row when content exceeds the available width.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = computeRows(proposal: proposal, subviews: subviews)
-        var height: CGFloat = 0
-        for (index, row) in rows.enumerated() {
-            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
-            height += rowHeight
-            if index < rows.count - 1 { height += spacing }
-        }
-        return CGSize(width: proposal.width ?? 0, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let rows = computeRows(proposal: proposal, subviews: subviews)
-        var y = bounds.minY
-        for row in rows {
-            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
-            var x = bounds.minX
-            for subview in row {
-                let size = subview.sizeThatFits(.unspecified)
-                subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-                x += size.width + spacing
-            }
-            y += rowHeight + spacing
-        }
-    }
-
-    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutSubviews.Element]] {
-        let maxWidth = proposal.width ?? .infinity
-        var rows: [[LayoutSubviews.Element]] = [[]]
-        var currentWidth: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if currentWidth + size.width > maxWidth && !rows[rows.count - 1].isEmpty {
-                rows.append([])
-                currentWidth = 0
-            }
-            rows[rows.count - 1].append(subview)
-            currentWidth += size.width + spacing
-        }
-        return rows
-    }
-}
-
-

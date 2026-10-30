@@ -61,7 +61,6 @@ enum BackupImportService {
         let existingLocationKeys = Set(existingLocations.map { locationKey(name: $0.name, houseName: $0.resolvedHouse?.name, parentLocationName: $0.parentLocation?.name) })
         let existingContainerIDs = Set(try InventoryService.allContainers(in: context).map { $0.identifier.lowercased() })
         let existingItemIDs = Set(try InventoryService.allItems(in: context).map { $0.identifier.lowercased() })
-        let existingTagNames = Set(try InventoryService.allTags(in: context).map { $0.name.lowercased() })
 
         // Determine which entities to import (filter out duplicates)
         let housesToImport = manifest.houses.filter { !existingHouseNames.contains($0.name.lowercased()) }
@@ -83,8 +82,6 @@ enum BackupImportService {
 
         let itemsToImport = manifest.items.filter { !existingItemIDs.contains($0.identifier.lowercased()) }
         let skippedItemIDs = Set(manifest.items.filter { existingItemIDs.contains($0.identifier.lowercased()) }.map(\.exportID))
-
-        let tagsToImport = manifest.tags.filter { !existingTagNames.contains($0.name.lowercased()) }
 
         // Build a filtered manifest for importing
         // Photos: only import photos whose owner is being imported
@@ -111,7 +108,8 @@ enum BackupImportService {
             locations: locationsToImport,
             containers: containersToImport,
             items: itemsToImport,
-            tags: tagsToImport,
+            // All tags are kept so item tag names can be folded into notes
+            tags: manifest.tags,
             photos: photosToImport,
             homeLocations: homeLocationsToImport
         )
@@ -258,7 +256,6 @@ enum BackupImportService {
         var locationMap: [UUID: Location] = [:]
         var containerMap: [UUID: Container] = [:]
         var itemMap: [UUID: Item] = [:]
-        var tagMap: [UUID: Tag] = [:]
 
         // Pre-populate maps with existing entities that match (for relationship resolution)
         for exportHouse in manifest.houses {
@@ -291,13 +288,6 @@ enum BackupImportService {
             }) {
                 itemMap[exportItem.exportID] = existing
             }
-        }
-
-        // Import Tags (always merge by name)
-        for exportTag in manifest.tags {
-            let tag = try InventoryService.findOrCreateTag(name: exportTag.name, in: context)
-            tagMap[exportTag.exportID] = tag
-            result.tagsImported += 1
         }
 
         // Import Houses
@@ -444,12 +434,11 @@ enum BackupImportService {
                         existing.brand = exportItem.brand
                         existing.model = exportItem.model
                         existing.condition = exportItem.condition
-                        existing.notes = exportItem.notesWithLegacyKeywords
+                        existing.notes = exportItem.notesWithLegacyKeywords(tags: manifest.tags)
                         existing.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                         existing.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                         existing.location = exportItem.locationExportID.flatMap { locationMap[$0] }
                         existing.house = exportItem.houseExportID.flatMap { houseMap[$0] }
-                        existing.tags = exportItem.tagExportIDs.compactMap { tagMap[$0] }
                         existing.updatedAt = .now
                         result.itemsImported += 1
                     }
@@ -460,12 +449,11 @@ enum BackupImportService {
                     item.brand = exportItem.brand
                     item.model = exportItem.model
                     item.condition = exportItem.condition
-                    item.notes = exportItem.notesWithLegacyKeywords
+                    item.notes = exportItem.notesWithLegacyKeywords(tags: manifest.tags)
                     item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                     item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                     item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
                     item.house = exportItem.houseExportID.flatMap { houseMap[$0] }
-                    item.tags = exportItem.tagExportIDs.compactMap { tagMap[$0] }
                     item.createdAt = exportItem.createdAt
                     context.insert(item)
                     itemMap[exportItem.exportID] = item
@@ -478,12 +466,11 @@ enum BackupImportService {
                 item.brand = exportItem.brand
                 item.model = exportItem.model
                 item.condition = exportItem.condition
-                item.notes = exportItem.notesWithLegacyKeywords
+                item.notes = exportItem.notesWithLegacyKeywords(tags: manifest.tags)
                 item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                 item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                 item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
                 item.house = exportItem.houseExportID.flatMap { houseMap[$0] }
-                item.tags = exportItem.tagExportIDs.compactMap { tagMap[$0] }
                 item.createdAt = exportItem.createdAt
                 context.insert(item)
                 itemMap[exportItem.exportID] = item
@@ -531,16 +518,6 @@ enum BackupImportService {
         var locationMap: [UUID: Location] = existingContext?.locationMap ?? [:]
         var containerMap: [UUID: Container] = existingContext?.containerMap ?? [:]
         var itemMap: [UUID: Item] = [:]
-        var tagMap: [UUID: Tag] = existingContext?.tagMap ?? [:]
-
-        // Tags
-        for exportTag in manifest.tags {
-            if tagMap[exportTag.exportID] == nil {
-                let tag = try InventoryService.findOrCreateTag(name: exportTag.name, in: context)
-                tagMap[exportTag.exportID] = tag
-            }
-            result.tagsImported += 1
-        }
 
         // Houses
         for exportHouse in manifest.houses {
@@ -591,12 +568,11 @@ enum BackupImportService {
             item.brand = exportItem.brand
             item.model = exportItem.model
             item.condition = exportItem.condition
-            item.notes = exportItem.notesWithLegacyKeywords
+            item.notes = exportItem.notesWithLegacyKeywords(tags: manifest.tags)
             item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
             item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
             item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
             item.house = exportItem.houseExportID.flatMap { houseMap[$0] }
-            item.tags = exportItem.tagExportIDs.compactMap { tagMap[$0] }
             item.createdAt = exportItem.createdAt
             context.insert(item)
             itemMap[exportItem.exportID] = item
@@ -833,16 +809,9 @@ enum BackupImportService {
         if existing.condition != incoming.condition {
             diffs.append(PropertyDifference(propertyName: "Condition", existingValue: existing.condition ?? "(none)", incomingValue: incoming.condition ?? "(none)"))
         }
-        let incomingNotes = incoming.notesWithLegacyKeywords
+        let incomingNotes = incoming.notesWithLegacyKeywords(tags: manifest.tags)
         if existing.notes != incomingNotes {
             diffs.append(PropertyDifference(propertyName: "Notes", existingValue: existing.notes ?? "(none)", incomingValue: incomingNotes ?? "(none)"))
-        }
-        let existingTags = existing.tags.map(\.name).sorted().joined(separator: ", ")
-        let incomingTags = incoming.tagExportIDs.compactMap { tid in
-            manifest.tags.first(where: { $0.exportID == tid })?.name
-        }.sorted().joined(separator: ", ")
-        if existingTags != incomingTags {
-            diffs.append(PropertyDifference(propertyName: "Tags", existingValue: existingTags.isEmpty ? "(none)" : existingTags, incomingValue: incomingTags.isEmpty ? "(none)" : incomingTags))
         }
         let existingContainerID = existing.container?.identifier ?? "(none)"
         let incomingContainerID = incoming.containerExportID.flatMap { cid in
@@ -896,7 +865,6 @@ enum BackupImportService {
         var houseMap: [UUID: House] = [:]
         var locationMap: [UUID: Location] = [:]
         var containerMap: [UUID: Container] = [:]
-        var tagMap: [UUID: Tag] = [:]
     }
 
     private static func buildExistingEntityMaps(context: ModelContext, fullManifest: BackupManifest) -> ExistingEntityMaps {
@@ -904,8 +872,7 @@ enum BackupImportService {
 
         guard let existingHouses = try? InventoryService.allHouses(in: context),
               let existingLocations = try? fetchAllLocations(in: context),
-              let existingContainers = try? InventoryService.allContainers(in: context),
-              let existingTags = try? InventoryService.allTags(in: context) else {
+              let existingContainers = try? InventoryService.allContainers(in: context) else {
             return maps
         }
 
@@ -932,11 +899,6 @@ enum BackupImportService {
                 $0.identifier.lowercased() == exportContainer.identifier.lowercased()
             }) {
                 maps.containerMap[exportContainer.exportID] = existing
-            }
-        }
-        for exportTag in fullManifest.tags {
-            if let existing = existingTags.first(where: { $0.name.lowercased() == exportTag.name.lowercased() }) {
-                maps.tagMap[exportTag.exportID] = existing
             }
         }
 

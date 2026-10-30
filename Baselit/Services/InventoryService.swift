@@ -8,7 +8,6 @@ struct InventoryService {
     static func searchItems(
         query: String,
         house: House? = nil,
-        tags: [Tag] = [],
         in context: ModelContext
     ) throws -> [Item] {
         let descriptor = FetchDescriptor<Item>(
@@ -25,20 +24,13 @@ struct InventoryService {
                 (item.itemDescription?.localizedCaseInsensitiveContains(query) ?? false) ||
                 (item.notes?.localizedCaseInsensitiveContains(query) ?? false) ||
                 (item.brand?.localizedCaseInsensitiveContains(query) ?? false) ||
-                (item.model?.localizedCaseInsensitiveContains(query) ?? false) ||
-                item.tags.contains(where: { $0.name.localizedCaseInsensitiveContains(query) })
+                (item.model?.localizedCaseInsensitiveContains(query) ?? false)
             }
         }
 
         // Post-filter for structured filters
         if let house {
             results = results.filter { $0.resolvedHouse?.persistentModelID == house.persistentModelID }
-        }
-        if !tags.isEmpty {
-            let tagNames = Set(tags.map(\.name))
-            results = results.filter { item in
-                !Set(item.tags.map(\.name)).isDisjoint(with: tagNames)
-            }
         }
 
         return results
@@ -83,23 +75,6 @@ struct InventoryService {
             (container.notes?.localizedCaseInsensitiveContains(query) ?? false)) &&
             (house == nil || container.resolvedHouse?.persistentModelID == house?.persistentModelID)
         }
-    }
-
-    // MARK: - Tag Helpers
-
-    static func findOrCreateTag(name: String, in context: ModelContext) throws -> Tag {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let descriptor = FetchDescriptor<Tag>(
-            predicate: #Predicate<Tag> { tag in
-                tag.name == trimmed
-            }
-        )
-        if let existing = try context.fetch(descriptor).first {
-            return existing
-        }
-        let tag = Tag(name: trimmed)
-        context.insert(tag)
-        return tag
     }
 
     // MARK: - Fetch Helpers

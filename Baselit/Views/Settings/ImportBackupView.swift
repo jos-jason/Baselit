@@ -116,7 +116,6 @@ struct ImportBackupView: View {
                     LabeledContent("Locations", value: "\(manifest.locations.count)")
                     LabeledContent("Containers", value: "\(manifest.containers.count)")
                     LabeledContent("Items", value: "\(manifest.items.count)")
-                    LabeledContent("Tags", value: "\(manifest.tags.count)")
                     LabeledContent("Photos", value: "\(manifest.photos.count)")
                     if manifest.includesPhotos {
                         Label("Includes photo files", systemImage: "photo")
@@ -289,9 +288,6 @@ struct ImportBackupView: View {
                     }
                     if result.itemsImported > 0 {
                         LabeledContent("Items Imported", value: "\(result.itemsImported)")
-                    }
-                    if result.tagsImported > 0 {
-                        LabeledContent("Tags Imported", value: "\(result.tagsImported)")
                     }
                     if result.photosImported > 0 {
                         LabeledContent("Photos Imported", value: "\(result.photosImported)")

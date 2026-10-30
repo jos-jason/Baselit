@@ -19,7 +19,6 @@ enum BackupExportService {
         let allLocations = try fetchAllLocations(in: context)
         let containers = try InventoryService.allContainers(in: context)
         let items = try InventoryService.allItems(in: context)
-        let tags = try InventoryService.allTags(in: context)
         let photos = try fetchAllPhotos(in: context)
         let homeLocations = try fetchAllHomeLocations(in: context)
 
@@ -28,14 +27,12 @@ enum BackupExportService {
         var locationIDMap: [ObjectIdentifier: UUID] = [:]
         var containerIDMap: [ObjectIdentifier: UUID] = [:]
         var itemIDMap: [ObjectIdentifier: UUID] = [:]
-        var tagIDMap: [ObjectIdentifier: UUID] = [:]
         var photoIDMap: [ObjectIdentifier: UUID] = [:]
 
         for house in houses { houseIDMap[ObjectIdentifier(house)] = UUID() }
         for location in allLocations { locationIDMap[ObjectIdentifier(location)] = UUID() }
         for container in containers { containerIDMap[ObjectIdentifier(container)] = UUID() }
         for item in items { itemIDMap[ObjectIdentifier(item)] = UUID() }
-        for tag in tags { tagIDMap[ObjectIdentifier(tag)] = UUID() }
         for photo in photos { photoIDMap[ObjectIdentifier(photo)] = UUID() }
 
         var homeLocationIDMap: [ObjectIdentifier: UUID] = [:]
@@ -97,15 +94,7 @@ enum BackupExportService {
                 lastLabelPrintedAt: item.lastLabelPrintedAt,
                 containerExportID: item.container.map { containerIDMap[ObjectIdentifier($0)] } ?? nil,
                 locationExportID: item.location.map { locationIDMap[ObjectIdentifier($0)] } ?? nil,
-                houseExportID: item.house.map { houseIDMap[ObjectIdentifier($0)] } ?? nil,
-                tagExportIDs: item.tags.compactMap { tagIDMap[ObjectIdentifier($0)] }
-            )
-        }
-
-        let exportTags = tags.map { tag in
-            ExportTag(
-                exportID: tagIDMap[ObjectIdentifier(tag)]!,
-                name: tag.name
+                houseExportID: item.house.map { houseIDMap[ObjectIdentifier($0)] } ?? nil
             )
         }
 
@@ -147,7 +136,7 @@ enum BackupExportService {
             locations: exportLocations,
             containers: exportContainers,
             items: exportItems,
-            tags: exportTags,
+            tags: [],
             photos: exportPhotos,
             homeLocations: exportHomeLocations
         )
@@ -263,7 +252,6 @@ enum BackupExportService {
         - A **Container** is a box, shelf, drawer, etc. Containers can nest inside other
           containers to arbitrary depth (e.g. a box inside a closet inside a room).
         - An **Item** is a physical object stored in a container or directly in a location.
-        - **Tags** provide cross-cutting labels for items (many-to-many relationship).
         - **Photos** can be attached to any entity (house, location, container, or item).
         - **HomeLocations** track where items and containers "belong" (get put away) at each
           house, separate from where they currently are. An item might currently be in transit
@@ -297,7 +285,7 @@ enum BackupExportService {
             "locations": [...],
             "containers": [...],
             "items": [...],
-            "tags": [...],
+            "tags": [],
             "photos": [...],
             "homeLocations": [...]
         }
@@ -381,24 +369,12 @@ enum BackupExportService {
             "updatedAt": "ISO8601 date",
             "containerExportID": "UUID? — references a Container.exportID",
             "locationExportID": "UUID? — references a Location.exportID (used when item is directly in a location, not in a container)",
-            "tagExportIDs": ["UUID — array of Tag.exportID references"]
+            "tagExportIDs": "[] — legacy, always empty"
         }
         ```
         
         **Placement:** An item is either in a container (`containerExportID`) or directly
         in a location (`locationExportID`), but not both simultaneously.
-        
-        ### Tag
-        
-        ```json
-        {
-            "exportID": "UUID",
-            "name": "string — unique, lowercase, trimmed. e.g. 'fragile', 'sentimental'"
-        }
-        ```
-        
-        Tags have a many-to-many relationship with items via the `tagExportIDs` array on
-        each Item. Tag names are normalized to lowercase with whitespace trimmed.
         
         ### Photo
         
@@ -445,8 +421,10 @@ enum BackupExportService {
         ## Legacy Item Fields
 
         Older backups may include `category` (a string) and `colors` (an array of strings)
-        on Item. These fields are no longer written. When importing, Baselit appends their
-        values to the item's `notes` as comma-separated keywords.
+        on Item, plus a top-level `tags` array of `{ "exportID", "name" }` referenced by each
+        Item's `tagExportIDs`. These are no longer populated: `tags` and `tagExportIDs` are
+        always written empty. When importing, Baselit appends their values to the item's
+        `notes` as comma-separated keywords.
 
         ---
         
@@ -479,7 +457,6 @@ enum BackupExportService {
                 │     ├─► Item        — containerExportID → Container.exportID
                 │     └─► Photo       — containerExportID → Container.exportID
                 ├─► Item (many)       — locationExportID → Location.exportID (direct placement)
-                │     ├─► Tag         — tagExportIDs → [Tag.exportID] (many-to-many)
                 │     └─► Photo       — itemExportID → Item.exportID
                 └─► Photo             — locationExportID → Location.exportID
           └─► Photo                   — houseExportID → House.exportID
@@ -500,16 +477,15 @@ enum BackupExportService {
            parsed entity. This lets you resolve all relationship references.
         
         3. **Reconstruct the hierarchy** in dependency order:
-           a. Tags (no dependencies)
-           b. Houses (no dependencies)
-           c. Locations — sort topologically by `parentLocationExportID`:
+           a. Houses (no dependencies)
+           b. Locations — sort topologically by `parentLocationExportID`:
               create locations with null parent first, then children. Each location
               depends on its parent location (if nested) and its house (if top-level).
-           d. Containers — sort topologically by `parentContainerExportID`:
+           c. Containers — sort topologically by `parentContainerExportID`:
               create containers with null parent first, then children. Each container
               depends on its parent container (if nested) and its location (if top-level).
-           e. Items (depend on Containers, Locations, and Tags)
-           f. Photos (depend on their owner entity)
+           d. Items (depend on Containers and Locations)
+           e. Photos (depend on their owner entity)
         
         4. **Load photos** — Read image files from the `photos/` directory using the
            `filename` field. Handle missing files gracefully (the data is still valid
@@ -522,7 +498,7 @@ enum BackupExportService {
         
         6. **Minimum viable UI** — At minimum, provide:
            - A hierarchical browser: Houses → Locations → Containers → Items
-           - A search function across item names, descriptions, brands, and tags
+           - A search function across item names, descriptions, brands, and notes
            - The ability to view photos attached to each entity
            - The ability to export data back to this same format for future portability
         
@@ -534,7 +510,6 @@ enum BackupExportService {
         - Locations: \(manifest.locations.count)
         - Containers: \(manifest.containers.count)
         - Items: \(manifest.items.count)
-        - Tags: \(manifest.tags.count)
         - Photos: \(manifest.photos.count)
         - Home Locations: \(manifest.homeLocations.count)
         
