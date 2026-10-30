@@ -54,39 +54,42 @@ struct InventoryService {
 
     // MARK: - Search Houses
 
-    static func searchHouses(query: String, in context: ModelContext) throws -> [House] {
+    static func searchHouses(query: String, house: House? = nil, in context: ModelContext) throws -> [House] {
         let descriptor = FetchDescriptor<House>(sortBy: [SortDescriptor(\House.name)])
         let all = try context.fetch(descriptor)
         guard !query.isEmpty else { return [] }
-        return all.filter { house in
-            house.name.localizedCaseInsensitiveContains(query) ||
-            (house.address?.localizedCaseInsensitiveContains(query) ?? false) ||
-            (house.notes?.localizedCaseInsensitiveContains(query) ?? false)
+        return all.filter { candidate in
+            (candidate.name.localizedCaseInsensitiveContains(query) ||
+            (candidate.address?.localizedCaseInsensitiveContains(query) ?? false) ||
+            (candidate.notes?.localizedCaseInsensitiveContains(query) ?? false)) &&
+            (house == nil || candidate.persistentModelID == house?.persistentModelID)
         }
     }
 
     // MARK: - Search Locations
 
-    static func searchLocations(query: String, in context: ModelContext) throws -> [Location] {
+    static func searchLocations(query: String, house: House? = nil, in context: ModelContext) throws -> [Location] {
         let descriptor = FetchDescriptor<Location>(sortBy: [SortDescriptor(\Location.name)])
         let all = try context.fetch(descriptor)
         guard !query.isEmpty else { return [] }
         return all.filter { location in
-            location.name.localizedCaseInsensitiveContains(query) ||
-            (location.notes?.localizedCaseInsensitiveContains(query) ?? false)
+            (location.name.localizedCaseInsensitiveContains(query) ||
+            (location.notes?.localizedCaseInsensitiveContains(query) ?? false)) &&
+            (house == nil || location.resolvedHouse?.persistentModelID == house?.persistentModelID)
         }
     }
 
     // MARK: - Search Containers
 
-    static func searchContainers(query: String, in context: ModelContext) throws -> [Container] {
+    static func searchContainers(query: String, house: House? = nil, in context: ModelContext) throws -> [Container] {
         let descriptor = FetchDescriptor<Container>(sortBy: [SortDescriptor(\Container.name)])
         let all = try context.fetch(descriptor)
         guard !query.isEmpty else { return [] }
         return all.filter { container in
-            container.name.localizedCaseInsensitiveContains(query) ||
+            (container.name.localizedCaseInsensitiveContains(query) ||
             (container.containerType?.localizedCaseInsensitiveContains(query) ?? false) ||
-            (container.notes?.localizedCaseInsensitiveContains(query) ?? false)
+            (container.notes?.localizedCaseInsensitiveContains(query) ?? false)) &&
+            (house == nil || container.resolvedHouse?.persistentModelID == house?.persistentModelID)
         }
     }
 

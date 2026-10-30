@@ -39,11 +39,7 @@ struct SearchTab: View {
                             Text("Search across houses, locations, containers, and items.")
                         }
                     } else if bubbleEntries.isEmpty && hasActiveFilters {
-                        ContentUnavailableView {
-                            Label("No Results", systemImage: "magnifyingglass")
-                        } description: {
-                            Text("Nothing matched your filters.")
-                        }
+                        filteredNoResultsView
                     } else {
                         BubbleGridView(entries: bubbleEntries) { destination in
                             switch destination {
@@ -55,10 +51,14 @@ struct SearchTab: View {
                         }
                     }
                 } else if !hasAnyResults {
-                    ContentUnavailableView {
-                        Label("No Results", systemImage: "magnifyingglass")
-                    } description: {
-                        Text("Nothing matched your search.")
+                    if hasActiveFilters {
+                        filteredNoResultsView
+                    } else {
+                        ContentUnavailableView {
+                            Label("No Results", systemImage: "magnifyingglass")
+                        } description: {
+                            Text("Nothing matched your search.")
+                        }
                     }
                 } else {
                     List {
@@ -188,6 +188,33 @@ struct SearchTab: View {
         }
     }
 
+    /// Shown when filters hide every result, with a way to widen the search
+    private var filteredNoResultsView: some View {
+        ContentUnavailableView {
+            Label("No Results", systemImage: "line.3.horizontal.decrease.circle")
+        } description: {
+            if let selectedHouse {
+                Text("Nothing matched in \(selectedHouse.name). Switch back to All Houses to search everywhere.")
+            } else {
+                Text("Nothing matched your filters. Turn them off to see more results.")
+            }
+        } actions: {
+            if selectedHouse != nil {
+                Button("Show All Houses") {
+                    selectedHouse = nil
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            if selectedCategory != nil || selectedColor != nil {
+                Button("Clear All Filters") {
+                    selectedHouse = nil
+                    selectedCategory = nil
+                    selectedColor = nil
+                }
+            }
+        }
+    }
+
     private var activeFilterCount: Int {
         var count = 0
         if selectedHouse != nil { count += 1 }
@@ -219,14 +246,17 @@ struct SearchTab: View {
 
     private func performSearch() {
         do {
-            matchingHouses = try InventoryService.searchHouses(
-                query: searchText, in: modelContext
+            // Houses, locations, and containers have no category or color,
+            // so only items can match when either of those filters is on
+            let itemOnlyFilters = selectedCategory != nil || selectedColor != nil
+            matchingHouses = itemOnlyFilters ? [] : try InventoryService.searchHouses(
+                query: searchText, house: selectedHouse, in: modelContext
             )
-            matchingLocations = try InventoryService.searchLocations(
-                query: searchText, in: modelContext
+            matchingLocations = itemOnlyFilters ? [] : try InventoryService.searchLocations(
+                query: searchText, house: selectedHouse, in: modelContext
             )
-            matchingContainers = try InventoryService.searchContainers(
-                query: searchText, in: modelContext
+            matchingContainers = itemOnlyFilters ? [] : try InventoryService.searchContainers(
+                query: searchText, house: selectedHouse, in: modelContext
             )
             matchingItems = try InventoryService.searchItems(
                 query: searchText,
