@@ -84,11 +84,6 @@ struct InventoryService {
         return try context.fetch(descriptor)
     }
 
-    static func allTags(in context: ModelContext) throws -> [Tag] {
-        let descriptor = FetchDescriptor<Tag>(sortBy: [SortDescriptor(\Tag.name)])
-        return try context.fetch(descriptor)
-    }
-
     static func allContainers(in context: ModelContext) throws -> [Container] {
         let descriptor = FetchDescriptor<Container>(sortBy: [SortDescriptor(\Container.name)])
         return try context.fetch(descriptor)

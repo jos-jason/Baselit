@@ -671,9 +671,6 @@ enum BackupImportService {
         let containers = try InventoryService.allContainers(in: context)
         for container in containers { context.delete(container) }
 
-        let tags = try InventoryService.allTags(in: context)
-        for tag in tags { context.delete(tag) }
-
         let locations = try fetchAllLocations(in: context)
         for location in locations { context.delete(location) }
 

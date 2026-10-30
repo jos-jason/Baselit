@@ -6,11 +6,6 @@ final class Item {
     var name: String
     var itemDescription: String?
 
-    // Legacy: category, colors, and tags are no longer shown or edited. Existing
-    // values are moved into notes at launch (see moveLegacyFieldsToNotes).
-    // Remove these properties and the Tag model once every device has run that migration.
-    var category: ItemCategory?
-    var colors: [ItemColor] = []
     var quantity: Int
     var brand: String?
     var model: String?
@@ -29,9 +24,6 @@ final class Item {
     var container: Container?
     var location: Location?
     var house: House?
-
-    @Relationship(deleteRule: .nullify, inverse: \Tag.items)
-    var tags: [Tag] = []
 
     @Relationship(deleteRule: .cascade, inverse: \Photo.item)
     var photos: [Photo] = []
@@ -71,25 +63,6 @@ final class Item {
     /// Full breadcrumb path as a string
     var breadcrumbPath: String {
         breadcrumbComponents.joined(separator: " › ")
-    }
-
-    /// Move any legacy category, colors, and tags into notes as searchable
-    /// keywords, then clear them. Returns true if the item changed.
-    @discardableResult
-    func moveLegacyFieldsToNotes() -> Bool {
-        guard category != nil || !colors.isEmpty || !tags.isEmpty else { return false }
-        notes = Item.notes(notes, addingKeywords: Item.legacyKeywords(
-            category: category, colors: colors, tagNames: tags.map(\.name)
-        ))
-        category = nil
-        colors = []
-        tags = []
-        return true
-    }
-
-    /// Keywords for legacy fields, in display form
-    static func legacyKeywords(category: ItemCategory?, colors: [ItemColor], tagNames: [String]) -> [String] {
-        [category?.displayName].compactMap { $0 } + colors.map(\.displayName) + tagNames
     }
 
     /// Append keywords to notes as a comma-separated line, skipping any word

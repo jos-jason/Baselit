@@ -175,11 +175,8 @@ struct ExportItem: Codable {
     /// Notes with any category, colors, and tags from an older backup appended as keywords
     func notesWithLegacyKeywords(tags: [ExportTag]) -> String? {
         let tagNames = tagExportIDs.compactMap { id in tags.first(where: { $0.exportID == id })?.name }
-        return Item.notes(notes, addingKeywords: Item.legacyKeywords(
-            category: category.flatMap { ItemCategory(rawValue: $0) },
-            colors: colors.compactMap { ItemColor(rawValue: $0) },
-            tagNames: tagNames
-        ))
+        let keywords = [category].compactMap { $0 } + colors
+        return Item.notes(notes, addingKeywords: keywords.map(\.capitalized) + tagNames)
     }
 
     private enum CodingKeys: String, CodingKey {

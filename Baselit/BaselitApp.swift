@@ -19,7 +19,6 @@ struct BaselitApp: App {
             Location.self,
             Container.self,
             Item.self,
-            Tag.self,
             Photo.self,
             HomeLocation.self
         ])
@@ -47,21 +46,6 @@ struct BaselitApp: App {
                 item.identifier = IdentifierGenerator.generate()
             }
             if !itemsNeedingBackfill.isEmpty {
-                try context.save()
-            }
-
-            // Move legacy category, color, and tag values into notes as keywords.
-            // Filtered in memory to avoid SwiftData #Predicate issues with enum fields.
-            var movedLegacyFields = false
-            for item in try context.fetch(FetchDescriptor<Item>()) {
-                if item.moveLegacyFieldsToNotes() {
-                    movedLegacyFields = true
-                }
-            }
-            // Tags no longer belong to any item, so remove the leftover records
-            let leftoverTags = try context.fetch(FetchDescriptor<Tag>())
-            for tag in leftoverTags { context.delete(tag) }
-            if movedLegacyFields || !leftoverTags.isEmpty {
                 try context.save()
             }
 
