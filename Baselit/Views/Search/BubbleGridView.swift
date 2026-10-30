@@ -15,168 +15,112 @@ struct BubbleEntry: Identifiable {
     let destination: Destination
 }
 
-// MARK: - Sphere math helpers
-
-/// A 3D point on the unit sphere.
-private struct Point3D {
-    var x: Double
-    var y: Double
-    var z: Double
-}
-
-/// Rotate a point around an arbitrary axis by `angle` radians (Rodrigues' formula).
-/// The axis must be a unit vector.
-private func rotateAroundAxis(_ p: Point3D, axis: Point3D, angle: Double) -> Point3D {
-    let c = cos(angle)
-    let s = sin(angle)
-    let dot = axis.x * p.x + axis.y * p.y + axis.z * p.z
-    // cross = axis × p
-    let crossX = axis.y * p.z - axis.z * p.y
-    let crossY = axis.z * p.x - axis.x * p.z
-    let crossZ = axis.x * p.y - axis.y * p.x
-    return Point3D(
-        x: p.x * c + crossX * s + axis.x * dot * (1 - c),
-        y: p.y * c + crossY * s + axis.y * dot * (1 - c),
-        z: p.z * c + crossZ * s + axis.z * dot * (1 - c)
-    )
-}
-
-/// Distribute `count` points on a unit sphere using a Fibonacci / golden-angle
-/// spiral. For small counts the points are confined to a tight cap around the
-/// front pole so they cluster visibly near the center. As count grows the cap
-/// opens up to the full sphere.
-private func fibonacciSphere(count: Int) -> [Point3D] {
-    guard count > 0 else { return [] }
-    if count == 1 { return [Point3D(x: 0, y: 0, z: 1)] }
-
-    // Maximum half-angle (in radians) of the spherical cap measured from the
-    // front pole. Small counts get a tight cone; the cap stays compact through
-    // the mid-range and only opens to the full sphere at higher counts.
-    //   2 items  → ~30°   (cosy cluster)
-    //   5 items  → ~35°
-    //  10 items  → ~45°
-    //  20 items  → ~75°
-    //  40+ items → 180°  (full sphere)
-    let fullSphereCount = 40.0
-    let t = min(Double(count) / fullSphereCount, 1.0)
-    // Steep ease-in (t³) keeps the cap tight for longer
-    let ease = t * t * t
-    let maxTheta = (.pi / 6.0) + (.pi * 5.0 / 6.0) * ease  // 30° → 180°
-
-    let goldenRatio = (1.0 + sqrt(5.0)) / 2.0
-    var points: [Point3D] = []
-    points.reserveCapacity(count)
-
-    for i in 0..<count {
-        // Distribute uniformly within the spherical cap [0, maxTheta]
-        // Using the area-preserving formula: theta = acos(1 - u*(1-cos(maxTheta)))
-        let u = (Double(i) + 0.5) / Double(count)
-        let theta = acos(1.0 - u * (1.0 - cos(maxTheta)))
-        let phi = 2.0 * .pi * Double(i) / goldenRatio
-
-        points.append(Point3D(
-            x: sin(theta) * cos(phi),
-            y: sin(theta) * sin(phi),
-            z: cos(theta)
-        ))
+extension BubbleEntry {
+    /// When the underlying item or container was created; sets its slot in the grid.
+    var createdAt: Date {
+        switch destination {
+        case .item(let item): return item.createdAt
+        case .container(let container): return container.createdAt
+        }
     }
-    return points
 }
 
-/// Interactive sphere-projected bubble grid.
+// MARK: - Honeycomb layout
+
+/// Axial hex coordinates for the first `count` slots, spiraling outward ring by
+/// ring from the center, like the Apple Watch app grid. Slot `i` is always in
+/// the same place, so adding entries only fills new slots on the outside.
+private func honeycombSlots(count: Int) -> [(q: Int, r: Int)] {
+    guard count > 0 else { return [] }
+    let directions = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+    var slots: [(q: Int, r: Int)] = [(0, 0)]
+    var ring = 1
+    while slots.count < count {
+        var q = directions[4].0 * ring
+        var r = directions[4].1 * ring
+        for direction in directions {
+            for _ in 0..<ring where slots.count < count {
+                slots.append((q, r))
+                q += direction.0
+                r += direction.1
+            }
+        }
+        ring += 1
+    }
+    return slots
+}
+
+/// Interactive honeycomb bubble grid inspired by the Apple Watch app grid.
 ///
-/// Items are distributed across the surface of a virtual sphere. Dragging
-/// rotates the sphere so new items sweep into view from the edges while items
-/// near the "horizon" shrink and fade out. Only the front hemisphere is shown.
+/// Entries sit on a flat hexagonal grid with fixed spacing, ordered oldest
+/// first from the center outward. Dragging pans the grid with momentum. Bubbles
+/// shrink and pull inward near the edges of the view, which gives the grid its
+/// rounded look without ever changing the spacing between neighbors.
 struct BubbleGridView: View {
     let entries: [BubbleEntry]
     let onSelect: (BubbleEntry.Destination) -> Void
 
     // MARK: - Layout constants
 
-    /// Bubble diameter when an item is right at the front pole.
+    /// Bubble diameter in the middle of the view.
     private let baseBubbleSize: CGFloat = 88
-    /// How much of the view's smallest dimension the projected sphere fills.
-    private let sphereRadiusFraction: CGFloat = 0.7
-    /// Points with z below this value (behind the horizon) are hidden.
-    private let horizonZ: Double = 0.25
-    /// How quickly size drops off as items approach the horizon.
-    private let depthExponent: Double = 1.8
-    /// Drag sensitivity – points of drag per radian of rotation.
-    private let dragSensitivity: CGFloat = 400
+    /// Distance between neighboring bubble centers (leaves a 16pt gap).
+    private let slotSpacing: CGFloat = 104
+    /// Normalized distance from the view center where bubbles start to shrink
+    /// (1.0 is the edge of the view along that axis).
+    private let fisheyeStart: Double = 0.55
+    /// Normalized distance where bubbles reach their smallest size.
+    private let fisheyeEnd: Double = 1.15
+    /// Smallest scale at the edge; bubbles below `hiddenScale` aren't drawn.
+    private let minimumScale: Double = 0.2
+    private let hiddenScale: Double = 0.22
+    /// How much bubbles past `fisheyeStart` are pulled back toward the center.
+    private let edgeCompression: Double = 0.35
 
     // MARK: - Physics constants
 
-    /// Fraction of velocity retained each frame (0 = instant stop, 1 = no friction).
-    private let friction: Double = 0.85
-    /// Strength of the spring pulling back toward the rest orientation (radians/s²-ish).
-    private let springStrength: Double = 0.35
-    /// Below this angular velocity the animation stops.
-    private let velocityEpsilon: Double = 0.002
-    /// Below this total angular offset from rest the spring snaps home.
-    private let offsetEpsilon: Double = 0.005
+    /// Fraction of velocity retained each frame at 60fps.
+    private let friction: Double = 0.93
+    /// How strongly the grid is pulled back when panned past its edge.
+    private let boundsSpring: Double = 0.15
+    /// Below this speed (points per second) momentum stops.
+    private let velocityEpsilon: Double = 5
 
     // MARK: - State
 
-    /// The rotated sphere points (base positions composed with all accumulated rotations).
-    @State private var rotatedPoints: [Point3D] = []
-    /// Live drag delta while finger is down (screen points).
-    @State private var dragTranslation: CGSize = .zero
-
-    /// Pre-computed base sphere positions (regenerated when entry count changes).
-    @State private var spherePoints: [Point3D] = []
-
-    // Momentum & spring-back state
-    /// Whether the inertia / spring-back animation loop is running.
-    @State private var isAnimating: Bool = false
-    /// Current angular velocity as a screen-space vector (points per frame equivalent).
-    @State private var angularVelocity: CGSize = .zero
-    /// Timestamp of the last animation frame, for computing dt.
+    /// How far the grid is panned from its center, in points.
+    @State private var pan: CGSize = .zero
+    /// Pan at the start of the current drag.
+    @State private var panAtDragStart: CGSize? = nil
+    /// Momentum velocity in points per second.
+    @State private var velocity: CGSize = .zero
+    @State private var isAnimating = false
     @State private var lastFrameTime: Date? = nil
-    /// Previous drag translation for computing velocity.
-    @State private var previousDragTranslation: CGSize = .zero
-    /// Timestamp of the previous drag event.
-    @State private var previousDragTime: Date? = nil
+
+    /// Entries in slot order: oldest first, with id as a tiebreaker.
+    private var orderedEntries: [BubbleEntry] {
+        entries.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+    }
 
     var body: some View {
         TimelineView(.animation(paused: !isAnimating)) { timeline in
             GeometryReader { geometry in
-                let viewCenter = CGPoint(x: geometry.size.width / 2,
-                                         y: geometry.size.height / 2)
-                let sphereRadius = min(geometry.size.width, geometry.size.height) * sphereRadiusFraction
-
-                // Build the drag rotation from the live drag translation
-                let dragAngle = hypot(Double(dragTranslation.width), Double(dragTranslation.height)) / Double(dragSensitivity)
-                let dragAxis = dragAxisFromTranslation(dragTranslation)
-
-                // Apply live drag rotation to the already-accumulated rotated points
-                let currentPoints: [Point3D] = {
-                    if dragAngle < 0.0001 { return rotatedPoints }
-                    return rotatedPoints.map { rotateAroundAxis($0, axis: dragAxis, angle: dragAngle) }
-                }()
-
-                let projected = projectedEntries(
-                    points: currentPoints,
-                    sphereRadius: sphereRadius,
-                    viewCenter: viewCenter
-                )
+                let laidOut = layout(in: geometry.size)
 
                 ZStack {
-                    ForEach(projected, id: \.entry.id) { proj in
-                        let bubbleSize = baseBubbleSize * proj.scale
-
+                    ForEach(laidOut, id: \.entry.id) { bubble in
                         BubbleView(
-                            entry: proj.entry,
-                            size: bubbleSize,
+                            entry: bubble.entry,
+                            size: baseBubbleSize * bubble.scale,
                             maxSize: baseBubbleSize
                         )
-                        .position(x: proj.screenX, y: proj.screenY)
-                        .zIndex(proj.zIndex)
-                        .opacity(proj.opacity)
-                        .allowsHitTesting(proj.opacity > 0.3)
+                        .position(bubble.position)
+                        .zIndex(bubble.scale)
+                        .allowsHitTesting(bubble.scale > 0.4)
                         .onTapGesture {
-                            onSelect(proj.entry.destination)
+                            onSelect(bubble.entry.destination)
                         }
+                        .transition(.scale.combined(with: .opacity))
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
@@ -184,41 +128,19 @@ struct BubbleGridView: View {
                 .gesture(
                     DragGesture()
                         .onChanged { value in
-                            // Stop any running animation when the user grabs again
                             isAnimating = false
-                            lastFrameTime = nil
-
-                            let now = Date()
-                            // Compute instantaneous drag velocity
-                            if let prevTime = previousDragTime {
-                                let dt = now.timeIntervalSince(prevTime)
-                                if dt > 0 && dt < 0.2 {
-                                    let vx = (value.translation.width - previousDragTranslation.width) / CGFloat(dt)
-                                    let vy = (value.translation.height - previousDragTranslation.height) / CGFloat(dt)
-                                    angularVelocity = CGSize(width: vx, height: vy)
-                                }
-                            }
-                            previousDragTranslation = value.translation
-                            previousDragTime = now
-                            dragTranslation = value.translation
+                            let start = panAtDragStart ?? pan
+                            panAtDragStart = start
+                            pan = CGSize(
+                                width: start.width - value.translation.width,
+                                height: start.height - value.translation.height
+                            )
                         }
                         .onEnded { value in
-                            // Commit the drag rotation into the stored rotated points
-                            let angle = hypot(Double(dragTranslation.width), Double(dragTranslation.height)) / Double(dragSensitivity)
-                            if angle > 0.0001 {
-                                let axis = dragAxisFromTranslation(dragTranslation)
-                                rotatedPoints = rotatedPoints.map { rotateAroundAxis($0, axis: axis, angle: angle) }
-                            }
-                            dragTranslation = .zero
-                            previousDragTranslation = .zero
-                            previousDragTime = nil
-
-                            // Kick off momentum + spring-back animation
-                            let speed = hypot(angularVelocity.width, angularVelocity.height)
-                            if speed > 10 || totalAngularOffset() > offsetEpsilon {
-                                lastFrameTime = Date()
-                                isAnimating = true
-                            }
+                            panAtDragStart = nil
+                            velocity = CGSize(width: -value.velocity.width, height: -value.velocity.height)
+                            lastFrameTime = Date()
+                            isAnimating = true
                         }
                 )
             }
@@ -226,78 +148,79 @@ struct BubbleGridView: View {
                 stepAnimation()
             }
         }
-        .onAppear {
-            spherePoints = fibonacciSphere(count: entries.count)
-            rotatedPoints = spherePoints
-        }
-        .onChange(of: entries.count) {
-            spherePoints = fibonacciSphere(count: entries.count)
-            rotatedPoints = spherePoints
-        }
+        .animation(.spring(duration: 0.35), value: entries.count)
     }
 
-    // MARK: - Drag axis
+    // MARK: - Layout
 
-    /// Convert a screen-space drag translation into a rotation axis.
-    /// Dragging right → rotate around Y (items move right).
-    /// Dragging down → rotate around X (items move down).
-    /// No Z-axis component, so no roll ever occurs.
-    private func dragAxisFromTranslation(_ t: CGSize) -> Point3D {
-        let dx = Double(t.width)
-        let dy = Double(t.height)
-        let len = hypot(dx, dy)
-        guard len > 0.001 else { return Point3D(x: 0, y: 1, z: 0) }
-        // Rotation axis is perpendicular to drag direction in screen space:
-        // drag right (dx>0) → rotate around Y axis (items shift right)
-        // drag down  (dy>0) → rotate around -X axis (items shift down)
-        return Point3D(x: dy / len, y: dx / len, z: 0)
+    private struct LaidOutBubble {
+        let entry: BubbleEntry
+        let position: CGPoint
+        let scale: CGFloat
     }
 
-    // MARK: - Momentum & spring-back
+    /// Where a slot sits on the flat grid, relative to the center slot.
+    private func gridPoint(q: Int, r: Int) -> CGPoint {
+        CGPoint(
+            x: slotSpacing * (Double(q) + Double(r) / 2),
+            y: slotSpacing * (sqrt(3) / 2) * Double(r)
+        )
+    }
 
-    /// Measure how far each rotated point has drifted from its rest position.
-    /// Returns the average angular distance (in radians) across all points.
-    private func totalAngularOffset() -> Double {
-        guard rotatedPoints.count == spherePoints.count, !spherePoints.isEmpty else { return 0 }
-        var sum = 0.0
-        for i in 0..<spherePoints.count {
-            let r = rotatedPoints[i]
-            let s = spherePoints[i]
-            // dot product clamped to [-1,1] → acos gives angle
-            let dot = min(1, max(-1, r.x * s.x + r.y * s.y + r.z * s.z))
-            sum += acos(dot)
+    private func layout(in size: CGSize) -> [LaidOutBubble] {
+        let halfWidth = size.width / 2
+        let halfHeight = size.height / 2
+        guard halfWidth > 0, halfHeight > 0 else { return [] }
+
+        let ordered = orderedEntries
+        let slots = honeycombSlots(count: ordered.count)
+        var result: [LaidOutBubble] = []
+        result.reserveCapacity(ordered.count)
+
+        for (entry, slot) in zip(ordered, slots) {
+            let point = gridPoint(q: slot.q, r: slot.r)
+            var x = point.x - pan.width
+            var y = point.y - pan.height
+
+            // Distance from the view center, normalized per axis so tall and
+            // wide views both use their full space
+            let distance = hypot(x / halfWidth, y / halfHeight)
+            var scale = 1.0
+            if distance > fisheyeStart {
+                let t = min((distance - fisheyeStart) / (fisheyeEnd - fisheyeStart), 1)
+                let eased = t * t * (3 - 2 * t)
+                scale = 1 - (1 - minimumScale) * eased
+                let compressed = fisheyeStart + (distance - fisheyeStart) * (1 - edgeCompression * eased)
+                x *= compressed / distance
+                y *= compressed / distance
+            }
+            guard scale >= hiddenScale else { continue }
+
+            result.append(LaidOutBubble(
+                entry: entry,
+                position: CGPoint(x: halfWidth + x, y: halfHeight + y),
+                scale: scale
+            ))
         }
-        return sum / Double(spherePoints.count)
+        return result
     }
 
-    /// Compute a single rotation that moves the current orientation a fraction
-    /// back toward the rest orientation, using the average displacement.
-    private func springRotation(strength: Double) -> (axis: Point3D, angle: Double)? {
-        guard rotatedPoints.count == spherePoints.count, !spherePoints.isEmpty else { return nil }
-        // Compute average displacement vector in screen-space-equivalent terms
-        // by summing (rest - current) for each point
-        var dx = 0.0
-        var dy = 0.0
-        for i in 0..<spherePoints.count {
-            let r = rotatedPoints[i]
-            let s = spherePoints[i]
-            dx += s.x - r.x
-            dy += s.y - r.y
-        }
-        dx /= Double(spherePoints.count)
-        dy /= Double(spherePoints.count)
+    // MARK: - Momentum & bounds
 
-        let len = hypot(dx, dy)
-        guard len > 0.0001 else { return nil }
-
-        // The axis of rotation to go from current toward rest
-        // maps the same way as drag: displacement in (dx, dy) → rotation axis
-        let axis = Point3D(x: -dy / len, y: dx / len, z: 0)
-        let angle = len * strength
-        return (axis, angle)
+    /// How far the grid can be panned: one ring short of the outermost slot, so
+    /// the edge of the grid stays near the edge of the view.
+    private var panLimit: Double {
+        let farthestSlot = honeycombSlots(count: entries.count)
+            .map { slot in
+                let point = gridPoint(q: slot.q, r: slot.r)
+                return hypot(point.x, point.y)
+            }
+            .max() ?? 0
+        return max(0, farthestSlot - slotSpacing)
     }
 
-    /// Called each animation frame to apply momentum and spring-back.
+    /// Called each animation frame to coast with momentum and settle back
+    /// inside the grid's bounds.
     private func stepAnimation() {
         guard isAnimating else { return }
         let now = Date()
@@ -306,111 +229,37 @@ struct BubbleGridView: View {
             return
         }
         let dt = now.timeIntervalSince(last)
-        guard dt > 0 && dt < 0.5 else {
-            lastFrameTime = now
-            return
-        }
         lastFrameTime = now
+        guard dt > 0 && dt < 0.5 else { return }
 
-        // 1. Apply friction to angular velocity
-        let frictionPerFrame = pow(friction, dt * 60) // normalize to ~60fps
-        angularVelocity = CGSize(
-            width: angularVelocity.width * frictionPerFrame,
-            height: angularVelocity.height * frictionPerFrame
+        let frictionPerFrame = pow(friction, dt * 60)
+        velocity = CGSize(width: velocity.width * frictionPerFrame, height: velocity.height * frictionPerFrame)
+        var newPan = CGSize(
+            width: pan.width + velocity.width * dt,
+            height: pan.height + velocity.height * dt
         )
 
-        // 2. Apply momentum rotation
-        let momentumTranslation = CGSize(
-            width: angularVelocity.width * dt,
-            height: angularVelocity.height * dt
-        )
-        let momAngle = hypot(Double(momentumTranslation.width), Double(momentumTranslation.height)) / Double(dragSensitivity)
-        if momAngle > 0.00001 {
-            let axis = dragAxisFromTranslation(momentumTranslation)
-            rotatedPoints = rotatedPoints.map { rotateAroundAxis($0, axis: axis, angle: momAngle) }
+        // Pull back inside the grid when panned past its outer ring
+        let limit = panLimit
+        let distance = hypot(newPan.width, newPan.height)
+        var outOfBounds = false
+        if distance > limit {
+            outOfBounds = true
+            let pull = min(boundsSpring * dt * 60, 1)
+            let target = CGSize(width: newPan.width / distance * limit, height: newPan.height / distance * limit)
+            newPan.width += (target.width - newPan.width) * pull
+            newPan.height += (target.height - newPan.height) * pull
+            velocity = CGSize(width: velocity.width * 0.8, height: velocity.height * 0.8)
         }
+        pan = newPan
 
-        // 3. Apply spring-back toward rest orientation
-        if let spring = springRotation(strength: springStrength * dt * 60) {
-            rotatedPoints = rotatedPoints.map { rotateAroundAxis($0, axis: spring.axis, angle: spring.angle) }
-            // The spring also dampens velocity in the direction opposing the spring
-            let springDampen = 0.97
-            angularVelocity = CGSize(
-                width: angularVelocity.width * springDampen,
-                height: angularVelocity.height * springDampen
-            )
-        }
-
-        // 4. Check if we should stop animating
-        let speed = hypot(angularVelocity.width, angularVelocity.height)
-        let offset = totalAngularOffset()
-        if speed < velocityEpsilon * 60 && offset < offsetEpsilon {
-            // Snap home
-            rotatedPoints = spherePoints
-            angularVelocity = .zero
-            isAnimating = false
-            lastFrameTime = nil
-        } else if speed < velocityEpsilon * 10 && offset < offsetEpsilon * 3 {
-            // Close enough — snap to avoid lingering micro-drift
-            rotatedPoints = spherePoints
-            angularVelocity = .zero
+        let speed = hypot(velocity.width, velocity.height)
+        if speed < velocityEpsilon && (!outOfBounds || distance - limit < 0.5) {
+            velocity = .zero
             isAnimating = false
             lastFrameTime = nil
         }
     }
-
-    // MARK: - Projection
-
-    private struct ProjectedEntry {
-        let entry: BubbleEntry
-        let screenX: CGFloat
-        let screenY: CGFloat
-        let scale: CGFloat
-        let opacity: Double
-        let zIndex: Double
-    }
-
-    private func projectedEntries(
-        points: [Point3D],
-        sphereRadius: CGFloat,
-        viewCenter: CGPoint
-    ) -> [ProjectedEntry] {
-        guard points.count == entries.count else { return [] }
-
-        var result: [ProjectedEntry] = []
-        result.reserveCapacity(entries.count)
-
-        for i in 0..<entries.count {
-            let p = points[i]
-
-            // Skip points behind the horizon
-            guard p.z > horizonZ else { continue }
-
-            // Depth factor: 0 at horizon, 1 at front pole
-            let depthNorm = (p.z - horizonZ) / (1.0 - horizonZ)
-            let depthFactor = pow(depthNorm, depthExponent)
-
-            // Project to screen (orthographic with depth-based scaling)
-            let screenX = viewCenter.x + CGFloat(p.x) * sphereRadius
-            let screenY = viewCenter.y - CGFloat(p.y) * sphereRadius
-
-            // Scale driven by depth, opacity is always full (hard cutoff at horizon)
-            let scale = CGFloat(0.25 + 0.75 * depthFactor)
-            let opacity = 1.0
-
-            result.append(ProjectedEntry(
-                entry: entries[i],
-                screenX: screenX,
-                screenY: screenY,
-                scale: scale,
-                opacity: opacity,
-                zIndex: p.z * 1000
-            ))
-        }
-
-        return result
-    }
-
 }
 
 /// A single circular bubble showing a thumbnail or placeholder.

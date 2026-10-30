@@ -266,7 +266,7 @@ struct SearchTab: View {
                 ))
             }
 
-            bubbleEntries = entries.shuffled()
+            bubbleEntries = entries
         } catch {
             bubbleEntries = []
         }
