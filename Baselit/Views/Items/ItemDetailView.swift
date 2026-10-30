@@ -60,15 +60,6 @@ struct ItemDetailView: View {
                 if let description = item.itemDescription, !description.isEmpty {
                     LabeledContent("Description", value: description)
                 }
-                if let category = item.category {
-                    LabeledContent("Category", value: category.displayName)
-                }
-                if !item.colors.isEmpty {
-                    LabeledContent("Colors") {
-                        Text(item.colors.map(\.displayName).joined(separator: ", "))
-                            .foregroundStyle(.secondary)
-                    }
-                }
                 if item.quantity > 1 {
                     LabeledContent("Quantity", value: "\(item.quantity)")
                 }

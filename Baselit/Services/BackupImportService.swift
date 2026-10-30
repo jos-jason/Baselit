@@ -440,13 +440,11 @@ enum BackupImportService {
                     if let existing = itemMap[exportItem.exportID] {
                         existing.name = exportItem.name
                         existing.itemDescription = exportItem.itemDescription
-                        existing.category = exportItem.category.flatMap { ItemCategory(rawValue: $0) }
-                        existing.colors = exportItem.colors.compactMap { ItemColor(rawValue: $0) }
                         existing.quantity = exportItem.quantity
                         existing.brand = exportItem.brand
                         existing.model = exportItem.model
                         existing.condition = exportItem.condition
-                        existing.notes = exportItem.notes
+                        existing.notes = exportItem.notesWithLegacyKeywords
                         existing.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                         existing.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                         existing.location = exportItem.locationExportID.flatMap { locationMap[$0] }
@@ -459,12 +457,10 @@ enum BackupImportService {
                     let item = Item(name: exportItem.name, quantity: exportItem.quantity)
                     item.identifier = IdentifierGenerator.generate()
                     item.itemDescription = exportItem.itemDescription
-                    item.category = exportItem.category.flatMap { ItemCategory(rawValue: $0) }
-                    item.colors = exportItem.colors.compactMap { ItemColor(rawValue: $0) }
                     item.brand = exportItem.brand
                     item.model = exportItem.model
                     item.condition = exportItem.condition
-                    item.notes = exportItem.notes
+                    item.notes = exportItem.notesWithLegacyKeywords
                     item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                     item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                     item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
@@ -479,12 +475,10 @@ enum BackupImportService {
                 let item = Item(name: exportItem.name, quantity: exportItem.quantity)
                 item.identifier = exportItem.identifier
                 item.itemDescription = exportItem.itemDescription
-                item.category = exportItem.category.flatMap { ItemCategory(rawValue: $0) }
-                item.colors = exportItem.colors.compactMap { ItemColor(rawValue: $0) }
                 item.brand = exportItem.brand
                 item.model = exportItem.model
                 item.condition = exportItem.condition
-                item.notes = exportItem.notes
+                item.notes = exportItem.notesWithLegacyKeywords
                 item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
                 item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
                 item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
@@ -594,12 +588,10 @@ enum BackupImportService {
             let item = Item(name: exportItem.name, quantity: exportItem.quantity)
             item.identifier = exportItem.identifier
             item.itemDescription = exportItem.itemDescription
-            item.category = exportItem.category.flatMap { ItemCategory(rawValue: $0) }
-            item.colors = exportItem.colors.compactMap { ItemColor(rawValue: $0) }
             item.brand = exportItem.brand
             item.model = exportItem.model
             item.condition = exportItem.condition
-            item.notes = exportItem.notes
+            item.notes = exportItem.notesWithLegacyKeywords
             item.lastLabelPrintedAt = exportItem.lastLabelPrintedAt
             item.container = exportItem.containerExportID.flatMap { containerMap[$0] }
             item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
@@ -829,16 +821,6 @@ enum BackupImportService {
         if existing.itemDescription != incoming.itemDescription {
             diffs.append(PropertyDifference(propertyName: "Description", existingValue: existing.itemDescription ?? "(none)", incomingValue: incoming.itemDescription ?? "(none)"))
         }
-        if existing.category?.rawValue != incoming.category {
-            diffs.append(PropertyDifference(propertyName: "Category", existingValue: existing.category?.displayName ?? "(none)", incomingValue: incoming.category?.capitalized ?? "(none)"))
-        }
-        let existingColors = existing.colors.map(\.rawValue).sorted()
-        let incomingColors = incoming.colors.sorted()
-        if existingColors != incomingColors {
-            let existingDisplay = existingColors.isEmpty ? "(none)" : existingColors.map { $0.capitalized }.joined(separator: ", ")
-            let incomingDisplay = incomingColors.isEmpty ? "(none)" : incomingColors.map { $0.capitalized }.joined(separator: ", ")
-            diffs.append(PropertyDifference(propertyName: "Colors", existingValue: existingDisplay, incomingValue: incomingDisplay))
-        }
         if existing.quantity != incoming.quantity {
             diffs.append(PropertyDifference(propertyName: "Quantity", existingValue: "\(existing.quantity)", incomingValue: "\(incoming.quantity)"))
         }
@@ -851,8 +833,9 @@ enum BackupImportService {
         if existing.condition != incoming.condition {
             diffs.append(PropertyDifference(propertyName: "Condition", existingValue: existing.condition ?? "(none)", incomingValue: incoming.condition ?? "(none)"))
         }
-        if existing.notes != incoming.notes {
-            diffs.append(PropertyDifference(propertyName: "Notes", existingValue: existing.notes ?? "(none)", incomingValue: incoming.notes ?? "(none)"))
+        let incomingNotes = incoming.notesWithLegacyKeywords
+        if existing.notes != incomingNotes {
+            diffs.append(PropertyDifference(propertyName: "Notes", existingValue: existing.notes ?? "(none)", incomingValue: incomingNotes ?? "(none)"))
         }
         let existingTags = existing.tags.map(\.name).sorted().joined(separator: ", ")
         let incomingTags = incoming.tagExportIDs.compactMap { tid in

@@ -82,6 +82,7 @@ struct ExportItem: Codable {
     let exportID: UUID
     let name: String
     let itemDescription: String?
+    /// Legacy: only read from older backups, never written. See `notesWithLegacyKeywords`.
     let category: String?
     let colors: [String]
     let quantity: Int
@@ -129,12 +130,12 @@ struct ExportItem: Codable {
         }
     }
 
-    init(exportID: UUID, name: String, itemDescription: String?, category: String?, colors: [String], quantity: Int, brand: String?, model: String?, condition: String?, notes: String?, identifier: String, createdAt: Date, updatedAt: Date, lastLabelPrintedAt: Date?, containerExportID: UUID?, locationExportID: UUID?, houseExportID: UUID?, tagExportIDs: [UUID]) {
+    init(exportID: UUID, name: String, itemDescription: String?, quantity: Int, brand: String?, model: String?, condition: String?, notes: String?, identifier: String, createdAt: Date, updatedAt: Date, lastLabelPrintedAt: Date?, containerExportID: UUID?, locationExportID: UUID?, houseExportID: UUID?, tagExportIDs: [UUID]) {
         self.exportID = exportID
         self.name = name
         self.itemDescription = itemDescription
-        self.category = category
-        self.colors = colors
+        self.category = nil
+        self.colors = []
         self.quantity = quantity
         self.brand = brand
         self.model = model
@@ -155,8 +156,6 @@ struct ExportItem: Codable {
         try container.encode(exportID, forKey: .exportID)
         try container.encode(name, forKey: .name)
         try container.encodeIfPresent(itemDescription, forKey: .itemDescription)
-        try container.encodeIfPresent(category, forKey: .category)
-        try container.encode(colors, forKey: .colors)
         try container.encode(quantity, forKey: .quantity)
         try container.encodeIfPresent(brand, forKey: .brand)
         try container.encodeIfPresent(model, forKey: .model)
@@ -170,6 +169,15 @@ struct ExportItem: Codable {
         try container.encodeIfPresent(locationExportID, forKey: .locationExportID)
         try container.encodeIfPresent(houseExportID, forKey: .houseExportID)
         try container.encode(tagExportIDs, forKey: .tagExportIDs)
+    }
+
+    /// Notes with any category and colors from an older backup appended as keywords
+    var notesWithLegacyKeywords: String? {
+        Item.notes(
+            notes,
+            addingKeywordsFor: category.flatMap { ItemCategory(rawValue: $0) },
+            colors: colors.compactMap { ItemColor(rawValue: $0) }
+        )
     }
 
     private enum CodingKeys: String, CodingKey {

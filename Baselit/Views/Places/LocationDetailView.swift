@@ -336,28 +336,10 @@ struct ItemRow: View {
                 Text(item.name)
                     .font(.headline)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    if let category = item.category {
-                        Text(category.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.fill.tertiary)
-                            .clipShape(Capsule())
-                    }
-                    ForEach(item.colors) { color in
-                        Text(color.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.fill.tertiary)
-                            .clipShape(Capsule())
-                    }
-                    if item.quantity > 1 {
-                        Text("×\(item.quantity)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                if item.quantity > 1 {
+                    Text("×\(item.quantity)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

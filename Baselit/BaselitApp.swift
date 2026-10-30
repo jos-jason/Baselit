@@ -50,6 +50,18 @@ struct BaselitApp: App {
                 try context.save()
             }
 
+            // Move legacy category and color values into notes as keywords.
+            // Filtered in memory to avoid SwiftData #Predicate issues with enum fields.
+            var movedLegacyFields = false
+            for item in try context.fetch(FetchDescriptor<Item>()) {
+                if item.moveLegacyCategoryAndColorsToNotes() {
+                    movedLegacyFields = true
+                }
+            }
+            if movedLegacyFields {
+                try context.save()
+            }
+
             self.modelContainer = container
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")

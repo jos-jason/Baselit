@@ -86,8 +86,6 @@ enum BackupExportService {
                 exportID: itemIDMap[ObjectIdentifier(item)]!,
                 name: item.name,
                 itemDescription: item.itemDescription,
-                category: item.category?.rawValue,
-                colors: item.colors.map(\.rawValue),
                 quantity: item.quantity,
                 brand: item.brand,
                 model: item.model,
@@ -373,8 +371,6 @@ enum BackupExportService {
             "exportID": "UUID",
             "name": "string — required",
             "itemDescription": "string? — optional longer description",
-            "category": "string? — one of the ItemCategory values listed below, or null",
-            "colors": "[string] — array of ItemColor values listed below (may be empty)",
             "quantity": "integer — how many of this item (minimum 1)",
             "brand": "string? — optional brand name",
             "model": "string? — optional model number/name",
@@ -446,29 +442,12 @@ enum BackupExportService {
         
         ---
         
-        ## Enum Values
-        
-        ### ItemCategory
-        
-        Valid values for the `category` field on Item:
-        
-        ```
-        electronics, clothing, tools, kitchenware, documents, books, toys,
-        sports, seasonal, medical, crafts, furniture, decor, outdoor, art, wellness, jewelry, other
-        ```
-        
-        ### ItemColor
-        
-        Valid values for entries in the `colors` array on Item:
-        
-        ```
-        red, orange, yellow, green, blue, teal, turquoise, purple, pink, black, white, gray,
-        brown, silver, gold, multicolor, clear, other
-        ```
-        
-        Unknown values should be treated as null/unset rather than causing errors.
-        Future versions may add new enum cases.
-        
+        ## Legacy Item Fields
+
+        Older backups may include `category` (a string) and `colors` (an array of strings)
+        on Item. These fields are no longer written. When importing, Baselit appends their
+        values to the item's `notes` as comma-separated keywords.
+
         ---
         
         ## Identifiers

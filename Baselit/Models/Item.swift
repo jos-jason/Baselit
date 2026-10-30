@@ -5,6 +5,10 @@ import SwiftData
 final class Item {
     var name: String
     var itemDescription: String?
+
+    // Legacy: category and colors are no longer shown or edited. Existing values
+    // are moved into notes at launch (see moveLegacyCategoryAndColorsToNotes).
+    // Remove these two properties once every device has run that migration.
     var category: ItemCategory?
     var colors: [ItemColor] = []
     var quantity: Int
@@ -67,5 +71,29 @@ final class Item {
     /// Full breadcrumb path as a string
     var breadcrumbPath: String {
         breadcrumbComponents.joined(separator: " › ")
+    }
+
+    /// Move any legacy category and colors into notes as searchable keywords,
+    /// then clear them. Returns true if the item changed.
+    @discardableResult
+    func moveLegacyCategoryAndColorsToNotes() -> Bool {
+        guard category != nil || !colors.isEmpty else { return false }
+        notes = Item.notes(notes, addingKeywordsFor: category, colors: colors)
+        category = nil
+        colors = []
+        return true
+    }
+
+    /// Append a category and colors to notes as a comma-separated keyword line,
+    /// skipping any word the notes already contain.
+    static func notes(_ notes: String?, addingKeywordsFor category: ItemCategory?, colors: [ItemColor]) -> String? {
+        let existing = notes ?? ""
+        let words = ([category?.displayName] + colors.map(\.displayName))
+            .compactMap { $0 }
+            .filter { !existing.localizedCaseInsensitiveContains($0) }
+        guard !words.isEmpty else { return notes }
+        let keywordLine = words.joined(separator: ", ")
+        let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? keywordLine : "\(trimmed)\n\(keywordLine)"
     }
 }

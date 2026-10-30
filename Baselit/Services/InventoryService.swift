@@ -8,8 +8,6 @@ struct InventoryService {
     static func searchItems(
         query: String,
         house: House? = nil,
-        category: ItemCategory? = nil,
-        color: ItemColor? = nil,
         tags: [Tag] = [],
         in context: ModelContext
     ) throws -> [Item] {
@@ -35,12 +33,6 @@ struct InventoryService {
         // Post-filter for structured filters
         if let house {
             results = results.filter { $0.resolvedHouse?.persistentModelID == house.persistentModelID }
-        }
-        if let category {
-            results = results.filter { $0.category == category }
-        }
-        if let color {
-            results = results.filter { $0.colors.contains(color) }
         }
         if !tags.isEmpty {
             let tagNames = Set(tags.map(\.name))

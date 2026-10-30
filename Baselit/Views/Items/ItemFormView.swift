@@ -18,8 +18,6 @@ struct ItemFormView: View {
 
     @State private var name = ""
     @State private var itemDescription = ""
-    @State private var category: ItemCategory?
-    @State private var selectedColors: Set<ItemColor> = []
     @State private var quantity = 1
     @State private var brand = ""
     @State private var model = ""
@@ -89,40 +87,6 @@ struct ItemFormView: View {
                 TextField("Item name", text: $name)
                 TextField("Description", text: $itemDescription)
                 Stepper("Quantity: \(quantity)", value: $quantity, in: 1...9999)
-            }
-
-            Section("Classification") {
-                Picker("Category", selection: $category) {
-                    Text("None").tag(nil as ItemCategory?)
-                    ForEach(ItemCategory.allCases) { cat in
-                        Text(cat.displayName).tag(cat as ItemCategory?)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Colors")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    FlowLayout(spacing: 8) {
-                        ForEach(ItemColor.allCases) { color in
-                            Button {
-                                if selectedColors.contains(color) {
-                                    selectedColors.remove(color)
-                                } else {
-                                    selectedColors.insert(color)
-                                }
-                            } label: {
-                                Text(color.displayName)
-                                    .font(.subheadline)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(selectedColors.contains(color) ? Color.accentColor : Color(.systemGray5))
-                                    .foregroundStyle(selectedColors.contains(color) ? .white : .primary)
-                                    .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
             }
 
             Section("Tags") {
@@ -453,8 +417,6 @@ struct ItemFormView: View {
     private func populateFrom(_ item: Item) {
         name = item.name
         itemDescription = item.itemDescription ?? ""
-        category = item.category
-        selectedColors = Set(item.colors)
         quantity = item.quantity
         brand = item.brand ?? ""
         model = item.model ?? ""
@@ -495,8 +457,6 @@ struct ItemFormView: View {
 
         item.name = trimmedName
         item.itemDescription = itemDescription.isEmpty ? nil : itemDescription
-        item.category = category
-        item.colors = Array(selectedColors)
         item.quantity = quantity
         item.brand = brand.isEmpty ? nil : brand
         item.model = model.isEmpty ? nil : model

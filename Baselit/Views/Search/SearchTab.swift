@@ -6,8 +6,6 @@ struct SearchTab: View {
     @State private var searchText = ""
     @State private var showFilters = false
     @State private var selectedHouse: House?
-    @State private var selectedCategory: ItemCategory?
-    @State private var selectedColor: ItemColor?
     @State private var matchingHouses: [House] = []
     @State private var matchingLocations: [Location] = []
     @State private var matchingContainers: [Container] = []
@@ -20,7 +18,7 @@ struct SearchTab: View {
     @State private var bubbleEntries: [BubbleEntry] = []
 
     private var hasActiveFilters: Bool {
-        selectedHouse != nil || selectedCategory != nil || selectedColor != nil
+        selectedHouse != nil
     }
 
     private var hasAnyResults: Bool {
@@ -119,14 +117,6 @@ struct SearchTab: View {
                 loadBubbleEntries()
                 performSearch()
             }
-            .onChange(of: selectedCategory) {
-                loadBubbleEntries()
-                performSearch()
-            }
-            .onChange(of: selectedColor) {
-                loadBubbleEntries()
-                performSearch()
-            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -146,16 +136,12 @@ struct SearchTab: View {
                     Button {
                         showFilters = true
                     } label: {
-                        Image(systemName: activeFilterCount > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     }
                 }
             }
             .sheet(isPresented: $showFilters) {
-                SearchFilterView(
-                    selectedHouse: $selectedHouse,
-                    selectedCategory: $selectedCategory,
-                    selectedColor: $selectedColor
-                )
+                SearchFilterView(selectedHouse: $selectedHouse)
             }
             .fullScreenCover(isPresented: $showQRScanner) {
                 QRScannerView { scannedValue in
@@ -193,34 +179,13 @@ struct SearchTab: View {
         ContentUnavailableView {
             Label("No Results", systemImage: "line.3.horizontal.decrease.circle")
         } description: {
-            if let selectedHouse {
-                Text("Nothing matched in \(selectedHouse.name). Switch back to All Houses to search everywhere.")
-            } else {
-                Text("Nothing matched your filters. Turn them off to see more results.")
-            }
+            Text("Nothing matched in \(selectedHouse?.name ?? "this house"). Switch back to All Houses to search everywhere.")
         } actions: {
-            if selectedHouse != nil {
-                Button("Show All Houses") {
-                    selectedHouse = nil
-                }
-                .buttonStyle(.borderedProminent)
+            Button("Show All Houses") {
+                selectedHouse = nil
             }
-            if selectedCategory != nil || selectedColor != nil {
-                Button("Clear All Filters") {
-                    selectedHouse = nil
-                    selectedCategory = nil
-                    selectedColor = nil
-                }
-            }
+            .buttonStyle(.borderedProminent)
         }
-    }
-
-    private var activeFilterCount: Int {
-        var count = 0
-        if selectedHouse != nil { count += 1 }
-        if selectedCategory != nil { count += 1 }
-        if selectedColor != nil { count += 1 }
-        return count
     }
 
     private func handleScannedCode(_ code: String) {
@@ -246,23 +211,18 @@ struct SearchTab: View {
 
     private func performSearch() {
         do {
-            // Houses, locations, and containers have no category or color,
-            // so only items can match when either of those filters is on
-            let itemOnlyFilters = selectedCategory != nil || selectedColor != nil
-            matchingHouses = itemOnlyFilters ? [] : try InventoryService.searchHouses(
+            matchingHouses = try InventoryService.searchHouses(
                 query: searchText, house: selectedHouse, in: modelContext
             )
-            matchingLocations = itemOnlyFilters ? [] : try InventoryService.searchLocations(
+            matchingLocations = try InventoryService.searchLocations(
                 query: searchText, house: selectedHouse, in: modelContext
             )
-            matchingContainers = itemOnlyFilters ? [] : try InventoryService.searchContainers(
+            matchingContainers = try InventoryService.searchContainers(
                 query: searchText, house: selectedHouse, in: modelContext
             )
             matchingItems = try InventoryService.searchItems(
                 query: searchText,
                 house: selectedHouse,
-                category: selectedCategory,
-                color: selectedColor,
                 in: modelContext
             )
         } catch {
@@ -282,16 +242,6 @@ struct SearchTab: View {
             if let selectedHouse {
                 items = items.filter { $0.resolvedHouse?.persistentModelID == selectedHouse.persistentModelID }
                 containers = containers.filter { $0.resolvedHouse?.persistentModelID == selectedHouse.persistentModelID }
-            }
-            if let selectedCategory {
-                items = items.filter { $0.category == selectedCategory }
-                // Containers don't have a category, so exclude them when filtering by category
-                containers = []
-            }
-            if let selectedColor {
-                items = items.filter { $0.colors.contains(selectedColor) }
-                // Containers don't have colors, so exclude them when filtering by color
-                containers = []
             }
 
             var entries: [BubbleEntry] = []

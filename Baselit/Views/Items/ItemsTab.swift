@@ -4,14 +4,12 @@ import SwiftData
 enum ItemSortOrder: String, CaseIterable {
     case name = "Name"
     case recentlyUpdated = "Recently Updated"
-    case category = "Category"
 }
 
 enum ItemsFilter: Hashable {
     case all            // Items + Containers
     case itemsOnly      // Items only (no containers)
     case uncontained    // Items & containers not inside a container
-    case category(ItemCategory) // Specific category (items only)
 }
 
 struct ItemsTab: View {
@@ -49,13 +47,6 @@ struct ItemsTab: View {
             case .container(let container): return container.updatedAt
             }
         }
-
-        var categoryName: String {
-            switch self {
-            case .item(let item): return item.category?.displayName ?? "zzz"
-            case .container: return "Container"
-            }
-        }
     }
 
     private var entries: [ListEntry] {
@@ -69,8 +60,6 @@ struct ItemsTab: View {
         case .uncontained:
             result = allItems.filter { $0.container == nil }.map { .item($0) }
                    + allContainers.filter { $0.parentContainer == nil }.map { .container($0) }
-        case .category(let category):
-            result = allItems.filter { $0.category == category }.map { .item($0) }
         }
 
         switch sortOrder {
@@ -78,8 +67,6 @@ struct ItemsTab: View {
             result.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
         case .recentlyUpdated:
             result.sort { $0.updatedAt > $1.updatedAt }
-        case .category:
-            result.sort { $0.categoryName < $1.categoryName }
         }
 
         return result
@@ -94,7 +81,6 @@ struct ItemsTab: View {
         case .all: return "All (Items & Containers)"
         case .itemsOnly: return "Items Only"
         case .uncontained: return "Not in a Container"
-        case .category(let cat): return cat.displayName
         }
     }
 
@@ -183,19 +169,6 @@ struct ItemsTab: View {
                                 HStack {
                                     Text("Not in a Container")
                                     if case .uncontained = activeFilter { Image(systemName: "checkmark") }
-                                }
-                            }
-                            Divider()
-                            ForEach(ItemCategory.allCases) { cat in
-                                Button {
-                                    activeFilter = .category(cat)
-                                } label: {
-                                    HStack {
-                                        Text(cat.displayName)
-                                        if case .category(let active) = activeFilter, active == cat {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
                                 }
                             }
                         }

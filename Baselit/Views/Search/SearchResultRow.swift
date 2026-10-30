@@ -12,25 +12,6 @@ struct SearchResultRow: View {
                     .font(.headline)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 8) {
-                    if let category = item.category {
-                        Text(category.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.fill.tertiary)
-                            .clipShape(Capsule())
-                    }
-                    ForEach(item.colors) { color in
-                        Text(color.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.fill.tertiary)
-                            .clipShape(Capsule())
-                    }
-                }
-
                 BreadcrumbView(components: item.breadcrumbComponents)
             }
         }
