@@ -83,6 +83,11 @@ struct BubbleGridView: View {
     private let friction: Double = 0.93
     /// How strongly the grid is pulled back when panned past its edge.
     private let boundsSpring: Double = 0.15
+    /// Where the outermost row stops, as a normalized distance from the view
+    /// center. After the edge shrink, 0.9 lands it just inside the view's edge.
+    private let edgeReach: Double = 0.9
+    /// How far past the edge a drag can stretch, as a fraction of the half view size.
+    private let overscrollReach: Double = 0.25
     /// Below this speed (points per second) momentum stops.
     private let velocityEpsilon: Double = 5
 
@@ -96,6 +101,8 @@ struct BubbleGridView: View {
     @State private var velocity: CGSize = .zero
     @State private var isAnimating = false
     @State private var lastFrameTime: Date? = nil
+    /// Size of the grid's view, used to work out how far it can be panned.
+    @State private var viewSize: CGSize = .zero
 
     /// Entries in slot order: oldest first, with id as a tiebreaker.
     private var orderedEntries: [BubbleEntry] {
@@ -125,15 +132,20 @@ struct BubbleGridView: View {
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .contentShape(Rectangle())
+                .onAppear { viewSize = geometry.size }
+                .onChange(of: geometry.size) { _, newSize in viewSize = newSize }
                 .gesture(
                     DragGesture()
                         .onChanged { value in
                             isAnimating = false
                             let start = panAtDragStart ?? pan
                             panAtDragStart = start
+                            let bounds = panBounds
                             pan = CGSize(
-                                width: start.width - value.translation.width,
-                                height: start.height - value.translation.height
+                                width: rubberBand(start.width - value.translation.width,
+                                                  within: bounds.x, stretch: viewSize.width / 2),
+                                height: rubberBand(start.height - value.translation.height,
+                                                   within: bounds.y, stretch: viewSize.height / 2)
                             )
                         }
                         .onEnded { value in
@@ -207,16 +219,34 @@ struct BubbleGridView: View {
 
     // MARK: - Momentum & bounds
 
-    /// How far the grid can be panned: one ring short of the outermost slot, so
-    /// the edge of the grid stays near the edge of the view.
-    private var panLimit: Double {
-        let farthestSlot = honeycombSlots(count: entries.count)
-            .map { slot in
-                let point = gridPoint(q: slot.q, r: slot.r)
-                return hypot(point.x, point.y)
-            }
-            .max() ?? 0
-        return max(0, farthestSlot - slotSpacing)
+    /// How far the grid can be panned along each axis, so scrolling stops when
+    /// the outermost row reaches the edge of the view. A grid that already fits
+    /// stays centered on its first slot.
+    private var panBounds: (x: ClosedRange<Double>, y: ClosedRange<Double>) {
+        let points = honeycombSlots(count: entries.count).map { gridPoint(q: $0.q, r: $0.r) }
+        guard !points.isEmpty, viewSize.width > 0, viewSize.height > 0 else { return (0...0, 0...0) }
+
+        func range(_ values: [Double], halfSize: Double) -> ClosedRange<Double> {
+            let low = (values.min() ?? 0) + edgeReach * halfSize
+            let high = (values.max() ?? 0) - edgeReach * halfSize
+            return low <= high ? low...high : 0...0
+        }
+        return (
+            range(points.map { Double($0.x) }, halfSize: Double(viewSize.width) / 2),
+            range(points.map { Double($0.y) }, halfSize: Double(viewSize.height) / 2)
+        )
+    }
+
+    /// Lets a drag stretch past `bounds` with growing resistance, like an iOS scroll view.
+    private func rubberBand(_ value: Double, within bounds: ClosedRange<Double>, stretch: Double) -> Double {
+        let limit = stretch * overscrollReach
+        guard limit > 0 else { return min(max(value, bounds.lowerBound), bounds.upperBound) }
+        func resist(_ overshoot: Double) -> Double {
+            (1 - 1 / (overshoot / limit * 0.55 + 1)) * limit
+        }
+        if value > bounds.upperBound { return bounds.upperBound + resist(value - bounds.upperBound) }
+        if value < bounds.lowerBound { return bounds.lowerBound - resist(bounds.lowerBound - value) }
+        return value
     }
 
     /// Called each animation frame to coast with momentum and settle back
@@ -233,28 +263,32 @@ struct BubbleGridView: View {
         guard dt > 0 && dt < 0.5 else { return }
 
         let frictionPerFrame = pow(friction, dt * 60)
-        velocity = CGSize(width: velocity.width * frictionPerFrame, height: velocity.height * frictionPerFrame)
-        var newPan = CGSize(
-            width: pan.width + velocity.width * dt,
-            height: pan.height + velocity.height * dt
-        )
+        let pull = min(boundsSpring * dt * 60, 1)
+        let bounds = panBounds
 
-        // Pull back inside the grid when panned past its outer ring
-        let limit = panLimit
-        let distance = hypot(newPan.width, newPan.height)
-        var outOfBounds = false
-        if distance > limit {
-            outOfBounds = true
-            let pull = min(boundsSpring * dt * 60, 1)
-            let target = CGSize(width: newPan.width / distance * limit, height: newPan.height / distance * limit)
-            newPan.width += (target.width - newPan.width) * pull
-            newPan.height += (target.height - newPan.height) * pull
-            velocity = CGSize(width: velocity.width * 0.8, height: velocity.height * 0.8)
+        // Coast along one axis, then pull back inside the bounds if past them.
+        // Returns the new position, velocity, and how far it still is outside.
+        func step(_ position: Double, _ speed: Double, _ range: ClosedRange<Double>) -> (Double, Double, Double) {
+            var speed = speed * frictionPerFrame
+            var position = position + speed * dt
+            let clamped = min(max(position, range.lowerBound), range.upperBound)
+            if position != clamped {
+                speed *= 0.6
+                position += (clamped - position) * pull
+            }
+            return (position, speed, abs(position - clamped))
         }
-        pan = newPan
 
-        let speed = hypot(velocity.width, velocity.height)
-        if speed < velocityEpsilon && (!outOfBounds || distance - limit < 0.5) {
+        let (x, velocityX, outsideX) = step(pan.width, velocity.width, bounds.x)
+        let (y, velocityY, outsideY) = step(pan.height, velocity.height, bounds.y)
+        pan = CGSize(width: x, height: y)
+        velocity = CGSize(width: velocityX, height: velocityY)
+
+        if hypot(velocityX, velocityY) < velocityEpsilon && max(outsideX, outsideY) < 0.5 {
+            pan = CGSize(
+                width: min(max(x, bounds.x.lowerBound), bounds.x.upperBound),
+                height: min(max(y, bounds.y.lowerBound), bounds.y.upperBound)
+            )
             velocity = .zero
             isAnimating = false
             lastFrameTime = nil
