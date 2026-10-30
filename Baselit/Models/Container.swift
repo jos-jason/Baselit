@@ -33,6 +33,9 @@ final class Container {
     @Relationship(deleteRule: .cascade, inverse: \Photo.container)
     var photos: [Photo] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \HomeLocation.ownerContainer)
+    var homeLocations: [HomeLocation] = []
+
     init(name: String, containerType: String? = nil, location: Location? = nil, parentContainer: Container? = nil, notes: String? = nil) {
         self.name = name
         self.containerType = containerType

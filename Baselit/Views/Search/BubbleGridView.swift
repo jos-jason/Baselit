@@ -446,7 +446,7 @@ private struct BubbleView: View {
     }
 
     private func loadThumbnail() {
-        guard let data = entry.photos.first?.imageData else {
+        guard let data = entry.photos.min(by: { $0.sortOrder < $1.sortOrder })?.imageData else {
             thumbnail = nil
             return
         }

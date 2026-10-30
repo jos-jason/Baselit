@@ -10,6 +10,10 @@ struct ThumbnailView: View {
 
     @State private var thumbnail: UIImage?
 
+    private var firstPhoto: Photo? {
+        photos.min(by: { $0.sortOrder < $1.sortOrder })
+    }
+
     var body: some View {
         Group {
             if let thumbnail {
@@ -27,7 +31,7 @@ struct ThumbnailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }
-        .onChange(of: photos.first?.persistentModelID) {
+        .onChange(of: firstPhoto?.persistentModelID) {
             loadThumbnail()
         }
         .onAppear {
@@ -38,7 +42,7 @@ struct ThumbnailView: View {
     /// Extracts imageData on the main actor (where SwiftData models are safe to access),
     /// then dispatches heavy image decoding to a background thread.
     private func loadThumbnail() {
-        guard let data = photos.first?.imageData else {
+        guard let data = firstPhoto?.imageData else {
             thumbnail = nil
             return
         }

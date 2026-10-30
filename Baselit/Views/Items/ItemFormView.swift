@@ -27,15 +27,21 @@ struct ItemFormView: View {
     @State private var notes = ""
     @State private var selectedTags: [Tag] = []
     @State private var selectedPhotos: [Photo] = []
-    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     @State private var isProcessingPhoto = false
+    @State private var isEditingPhotoOrder = false
+    @State private var photoOrderVersion = 0
     @State private var showOptionalFields = false
     @State private var showMoveSheet = false
+    @State private var showAddHomeLocation = false
+    @State private var homeLocationsToAdd: [(house: House, location: Location?, container: Container?)] = []
+    @State private var homeLocationIDsToRemove: Set<PersistentIdentifier> = []
 
     // Location selection state (for create mode)
     @State private var selectedHouse: House?
-    @State private var selectedLocation: Location?
+    /// Cascading location selections: index 0 = top-level, index 1 = sub-location, etc.
+    @State private var locationSelections: [Location?] = [nil]
     @State private var selectedContainer: Container?
     
     /// Guards against cascading onChange handlers clearing pre-populated selections during onAppear.
@@ -44,14 +50,29 @@ struct ItemFormView: View {
     private var isEditing: Bool { editingItem != nil }
     private var isValid: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    private var availableLocations: [Location] {
-        selectedHouse?.locations.sorted(by: { $0.name < $1.name }) ?? []
+    /// The deepest selected location across all cascading pickers
+    private var deepestSelectedLocation: Location? {
+        locationSelections.compactMap { $0 }.last
+    }
+
+    /// Top-level locations for the selected house
+    private var topLevelLocations: [Location] {
+        selectedHouse?.locations
+            .filter { $0.parentLocation == nil }
+            .sorted(by: { $0.name < $1.name }) ?? []
+    }
+
+    /// Sub-locations available at a given depth (children of the selection at depth-1)
+    private func subLocations(atDepth depth: Int) -> [Location] {
+        guard depth > 0, depth <= locationSelections.count,
+              let parent = locationSelections[depth - 1] else { return [] }
+        return parent.subLocations.sorted(by: { $0.name < $1.name })
     }
 
     private var availableContainers: [Container] {
-        if let selectedLocation {
+        if let deepestSelectedLocation {
             return allContainers.filter {
-                $0.resolvedLocation?.persistentModelID == selectedLocation.persistentModelID
+                $0.resolvedLocation?.persistentModelID == deepestSelectedLocation.persistentModelID
             }.sorted(by: { $0.breadcrumbPath < $1.breadcrumbPath })
         }
         if selectedHouse != nil {
@@ -110,26 +131,44 @@ struct ItemFormView: View {
 
             Section("Photos") {
                 if !selectedPhotos.isEmpty {
+                    if isEditingPhotoOrder {
+                        HStack {
+                            Text("Reorder Photos")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Done") {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isEditingPhotoOrder = false
+                                }
+                            }
+                            .font(.subheadline.bold())
+                        }
+                    }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(selectedPhotos) { photo in
-                                FormPhotoThumbnail(photo: photo) {
-                                    selectedPhotos.removeAll { $0.persistentModelID == photo.persistentModelID }
-                                    modelContext.delete(photo)
+                            ForEach(selectedPhotos.sorted(by: { $0.sortOrder < $1.sortOrder })) { photo in
+                                if isEditingPhotoOrder {
+                                    editableFormThumbnail(for: photo)
+                                } else {
+                                    normalFormThumbnail(for: photo)
                                 }
                             }
                         }
+                        .id(photoOrderVersion)
+                        .padding(.vertical, isEditingPhotoOrder ? 6 : 0)
                     }
                 }
 
-                PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                    Label(isProcessingPhoto ? "Adding…" : "Choose Photo", systemImage: "photo.badge.plus")
+                PhotosPicker(selection: $photoPickerItems, matching: .images) {
+                    Label(isProcessingPhoto ? "Adding…" : "Choose Photos", systemImage: "photo.badge.plus")
                 }
                 .disabled(isProcessingPhoto)
-                .onChange(of: photoPickerItem) { _, newItem in
-                    guard let newItem else { return }
-                    photoPickerItem = nil
-                    addFromPicker(item: newItem)
+                .onChange(of: photoPickerItems) { _, newItems in
+                    guard !newItems.isEmpty else { return }
+                    let items = newItems
+                    photoPickerItems = []
+                    addFromPicker(items: items)
                 }
 
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -166,26 +205,25 @@ struct ItemFormView: View {
                     }
                     .onChange(of: selectedHouse) {
                         guard didFinishInitialSetup else { return }
-                        selectedLocation = nil
+                        locationSelections = [nil]
                         selectedContainer = nil
                     }
 
-                    if selectedHouse != nil && !availableLocations.isEmpty {
-                        Picker("Location", selection: $selectedLocation) {
-                            Text("None").tag(nil as Location?)
-                            ForEach(availableLocations) { loc in
-                                Text(loc.name).tag(loc as Location?)
+                    // Cascading location pickers
+                    if selectedHouse != nil {
+                        locationPicker(atDepth: 0, label: "Location", locations: topLevelLocations)
+
+                        ForEach(1..<locationSelections.count, id: \.self) { depth in
+                            let subs = subLocations(atDepth: depth)
+                            if !subs.isEmpty {
+                                locationPicker(atDepth: depth, label: subLocationLabel(depth: depth), locations: subs)
                             }
-                        }
-                        .onChange(of: selectedLocation) {
-                            guard didFinishInitialSetup else { return }
-                            selectedContainer = nil
                         }
                     }
 
                     if !availableContainers.isEmpty {
                         Picker("Container", selection: $selectedContainer) {
-                            Text("None (directly in location)").tag(nil as Container?)
+                            Text(deepestSelectedLocation != nil ? "Directly in location" : "None").tag(nil as Container?)
                             ForEach(availableContainers) { c in
                                 Text(c.name).tag(c as Container?)
                             }
@@ -197,6 +235,50 @@ struct ItemFormView: View {
             Section("Notes") {
                 TextField("Notes", text: $notes, axis: .vertical)
                     .lineLimit(3...6)
+            }
+
+            // Home locations (where this item belongs)
+            Section("Belongs") {
+                // Existing home locations (from an item being edited)
+                if let item = editingItem {
+                    ForEach(item.homeLocations.filter {
+                        !homeLocationIDsToRemove.contains($0.persistentModelID)
+                    }.sorted(by: { ($0.house?.name ?? "") < ($1.house?.name ?? "") })) { hl in
+                        HStack {
+                            BreadcrumbView(components: hl.breadcrumbComponents)
+                            Spacer()
+                            Button(role: .destructive) {
+                                homeLocationIDsToRemove.insert(hl.persistentModelID)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                // Newly added home locations (not yet saved)
+                ForEach(Array(homeLocationsToAdd.enumerated()), id: \.offset) { index, entry in
+                    HStack {
+                        BreadcrumbView(components: homeLocationPreviewComponents(entry))
+                        Spacer()
+                        Button(role: .destructive) {
+                            homeLocationsToAdd.remove(at: index)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Button {
+                    showAddHomeLocation = true
+                } label: {
+                    Label("Add Home Location", systemImage: "house.badge.plus")
+                }
+                .disabled(availableHousesForHomeLocation.isEmpty)
             }
 
             // Optional fields behind a disclosure
@@ -228,19 +310,41 @@ struct ItemFormView: View {
                 // Pre-populate location selections from passed-in location/container
                 if let container {
                     selectedHouse = container.resolvedHouse
-                    selectedLocation = container.resolvedLocation
+                    if let loc = container.resolvedLocation {
+                        locationSelections = locationChain(for: loc).map { $0 as Location? }
+                        if !loc.subLocations.isEmpty {
+                            locationSelections.append(nil)
+                        }
+                    }
                     selectedContainer = container
                 } else if let location {
                     selectedHouse = location.resolvedHouse
-                    selectedLocation = location
+                    locationSelections = locationChain(for: location).map { $0 as Location? }
+                    if !location.subLocations.isEmpty {
+                        locationSelections.append(nil)
+                    }
                 }
             }
-            didFinishInitialSetup = true
+            // Defer so that onChange handlers triggered by the above
+            // assignments still see didFinishInitialSetup == false and
+            // won't cascade-clear the pre-populated selections.
+            DispatchQueue.main.async {
+                didFinishInitialSetup = true
+            }
         }
         .sheet(isPresented: $showMoveSheet) {
             if let item = editingItem {
                 NavigationStack {
                     MoveItemView(item: item)
+                }
+            }
+        }
+        .sheet(isPresented: $showAddHomeLocation) {
+            NavigationStack {
+                HomeLocationPickerView(
+                    existingHouseIDs: existingHomeLocationHouseIDs
+                ) { house, location, container in
+                    homeLocationsToAdd.append((house: house, location: location, container: container))
                 }
             }
         }
@@ -252,6 +356,98 @@ struct ItemFormView: View {
             .ignoresSafeArea()
         }
     
+    }
+
+    /// House IDs that already have a home location (existing + newly added)
+    private var existingHomeLocationHouseIDs: Set<PersistentIdentifier> {
+        var ids = Set<PersistentIdentifier>()
+        if let item = editingItem {
+            for hl in item.homeLocations where !homeLocationIDsToRemove.contains(hl.persistentModelID) {
+                if let house = hl.house {
+                    ids.insert(house.persistentModelID)
+                }
+            }
+        }
+        for entry in homeLocationsToAdd {
+            ids.insert(entry.house.persistentModelID)
+        }
+        return ids
+    }
+
+    /// Houses available for adding a new home location
+    private var availableHousesForHomeLocation: [House] {
+        houses.filter { !existingHomeLocationHouseIDs.contains($0.persistentModelID) }
+    }
+
+    /// Build preview breadcrumb components for a pending home location entry
+    private func homeLocationPreviewComponents(_ entry: (house: House, location: Location?, container: Container?)) -> [String] {
+        var components: [String] = [entry.house.name]
+        if let location = entry.location {
+            var locComponents: [String] = [location.name]
+            var current = location.parentLocation
+            while let parent = current {
+                locComponents.insert(parent.name, at: 0)
+                current = parent.parentLocation
+            }
+            components.append(contentsOf: locComponents)
+        }
+        if let container = entry.container {
+            var containerComponents: [String] = [container.name]
+            var current = container.parentContainer
+            while let parent = current {
+                containerComponents.insert(parent.name, at: 0)
+                current = parent.parentContainer
+            }
+            components.append(contentsOf: containerComponents)
+        }
+        return components
+    }
+
+    /// Build a picker for a specific depth in the location hierarchy
+    private func locationPicker(atDepth depth: Int, label: String, locations: [Location]) -> some View {
+        let binding = Binding<Location?>(
+            get: {
+                guard depth < locationSelections.count else { return nil }
+                return locationSelections[depth]
+            },
+            set: { newValue in
+                guard didFinishInitialSetup else { return }
+                if depth < locationSelections.count {
+                    locationSelections[depth] = newValue
+                }
+                if locationSelections.count > depth + 1 {
+                    locationSelections.removeSubrange((depth + 1)...)
+                }
+                if let loc = newValue, !loc.subLocations.isEmpty {
+                    locationSelections.append(nil)
+                }
+                selectedContainer = nil
+            }
+        )
+
+        return Picker(label, selection: binding) {
+            Text(depth == 0 ? "Select location..." : "None").tag(nil as Location?)
+            ForEach(locations) { loc in
+                Text(loc.name).tag(loc as Location?)
+            }
+        }
+    }
+
+    /// Returns a label like "Sub-location" or "Sub-sub-location" based on depth
+    private func subLocationLabel(depth: Int) -> String {
+        let prefix = String(repeating: "Sub-", count: depth)
+        return prefix + "location"
+    }
+
+    /// Builds the chain of locations from top-level down to the given location
+    private func locationChain(for location: Location) -> [Location] {
+        var chain: [Location] = [location]
+        var current = location.parentLocation
+        while let parent = current {
+            chain.insert(parent, at: 0)
+            current = parent.parentLocation
+        }
+        return chain
     }
 
     private func populateFrom(_ item: Item) {
@@ -285,8 +481,14 @@ struct ItemFormView: View {
             if let selectedContainer {
                 item.container = selectedContainer
                 item.location = nil
-            } else if let selectedLocation {
-                item.location = selectedLocation
+                item.house = nil
+            } else if let loc = deepestSelectedLocation {
+                item.location = loc
+                item.container = nil
+                item.house = nil
+            } else if let selectedHouse {
+                item.house = selectedHouse
+                item.location = nil
                 item.container = nil
             }
         }
@@ -304,26 +506,122 @@ struct ItemFormView: View {
         item.photos = selectedPhotos
         item.updatedAt = .now
 
+        // Remove home locations marked for deletion
+        for hl in item.homeLocations where homeLocationIDsToRemove.contains(hl.persistentModelID) {
+            modelContext.delete(hl)
+        }
+
+        // Add new home locations
+        for entry in homeLocationsToAdd {
+            try? HomeLocationService.addHomeLocation(
+                for: item,
+                house: entry.house,
+                location: entry.location,
+                container: entry.container,
+                context: modelContext
+            )
+        }
+
         dismiss()
     }
 
-    private func addFromPicker(item: PhotosPickerItem) {
+    @ViewBuilder
+    private func normalFormThumbnail(for photo: Photo) -> some View {
+        FormPhotoThumbnail(photo: photo) {
+            withAnimation {
+                selectedPhotos.removeAll { $0.persistentModelID == photo.persistentModelID }
+                modelContext.delete(photo)
+            }
+        }
+        .onLongPressGesture {
+            ensureUniquePhotoSortOrders()
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isEditingPhotoOrder = true
+            }
+        }
+    }
+
+    private func ensureUniquePhotoSortOrders() {
+        let sorted = selectedPhotos.sorted {
+            if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+            return $0.createdAt < $1.createdAt
+        }
+        for (i, photo) in sorted.enumerated() where photo.sortOrder != i {
+            photo.sortOrder = i
+        }
+        photoOrderVersion += 1
+    }
+
+    @ViewBuilder
+    private func editableFormThumbnail(for photo: Photo) -> some View {
+        let sorted = selectedPhotos.sorted(by: { $0.sortOrder < $1.sortOrder })
+        let index = sorted.firstIndex(where: { $0.persistentModelID == photo.persistentModelID })
+        let isFirst = index == sorted.startIndex
+        let isLast = index == sorted.index(before: sorted.endIndex)
+
+        FormPhotoThumbnail(photo: photo) {
+            withAnimation {
+                selectedPhotos.removeAll { $0.persistentModelID == photo.persistentModelID }
+                modelContext.delete(photo)
+                if selectedPhotos.isEmpty { isEditingPhotoOrder = false }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            HStack(spacing: 12) {
+                if !isFirst, let index {
+                    Button {
+                        withAnimation { swapPhotoOrder(sorted[index], sorted[index - 1]) }
+                    } label: {
+                        Image(systemName: "chevron.left.circle.fill")
+                            .font(.title3)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .black.opacity(0.5))
+                    }
+                }
+                if !isLast, let index {
+                    Button {
+                        withAnimation { swapPhotoOrder(sorted[index], sorted[index + 1]) }
+                    } label: {
+                        Image(systemName: "chevron.right.circle.fill")
+                            .font(.title3)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .black.opacity(0.5))
+                    }
+                }
+            }
+            .offset(y: -6)
+        }
+        .jiggleEffect()
+    }
+
+    private func swapPhotoOrder(_ a: Photo, _ b: Photo) {
+        let temp = a.sortOrder
+        a.sortOrder = b.sortOrder
+        b.sortOrder = temp
+        photoOrderVersion += 1
+    }
+
+    private func addFromPicker(items: [PhotosPickerItem]) {
         isProcessingPhoto = true
+        let nextSortOrder = (selectedPhotos.map(\.sortOrder).max() ?? -1) + 1
         Task {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                compressAndAddPhoto(data: data)
+            for (index, item) in items.enumerated() {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    compressAndAddPhoto(data: data, sortOrder: nextSortOrder + index)
+                }
             }
             isProcessingPhoto = false
         }
     }
 
     /// Compresses image data on a background thread, then adds the photo on the main actor.
-    private func compressAndAddPhoto(data: Data) {
+    private func compressAndAddPhoto(data: Data, sortOrder: Int? = nil) {
         let context = modelContext
+        let order = sortOrder ?? ((selectedPhotos.map(\.sortOrder).max() ?? -1) + 1)
         Task.detached {
             let compressed = compressImageData(data: data, maxDimension: 1200)
             await MainActor.run {
-                let photo = Photo(imageData: compressed)
+                let photo = Photo(imageData: compressed, sortOrder: order)
                 context.insert(photo)
                 selectedPhotos.append(photo)
             }

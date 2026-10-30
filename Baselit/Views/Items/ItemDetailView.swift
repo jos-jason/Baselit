@@ -10,6 +10,9 @@ struct ItemDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var showCamera = false
     @State private var showShareSheet = false
+    @State private var showAddedToQueue = false
+    @State private var showAddHomeLocation = false
+    @Environment(PrintQueueService.self) private var printQueue
 
     var body: some View {
         List {
@@ -112,6 +115,37 @@ struct ItemDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
+            // Home locations (where this item belongs)
+            Section("Belongs") {
+                ForEach(item.homeLocations.sorted(by: {
+                    ($0.house?.name ?? "") < ($1.house?.name ?? "")
+                })) { homeLocation in
+                    BreadcrumbView(components: homeLocation.breadcrumbComponents)
+                }
+                .onDelete { offsets in
+                    let sorted = item.homeLocations.sorted(by: {
+                        ($0.house?.name ?? "") < ($1.house?.name ?? "")
+                    })
+                    for index in offsets {
+                        modelContext.delete(sorted[index])
+                    }
+                }
+
+                if item.resolvedHouse != nil {
+                    Button {
+                        setCurrentLocationAsHome()
+                    } label: {
+                        Label("Set Current Location as Home", systemImage: "house.fill")
+                    }
+                }
+
+                Button {
+                    showAddHomeLocation = true
+                } label: {
+                    Label("Add Home Location", systemImage: "house.badge.plus")
+                }
+            }
+
             // Actions
             Section {
                 Button {
@@ -119,6 +153,23 @@ struct ItemDetailView: View {
                 } label: {
                     Label("Print Label", systemImage: "qrcode")
                 }
+
+                Button {
+                    printQueue.add(PrintQueueService.QueueEntry(
+                        name: item.name,
+                        identifier: item.identifier,
+                        type: "item"
+                    ))
+                    showAddedToQueue = true
+                } label: {
+                    Label(
+                        printQueue.contains(identifier: item.identifier)
+                            ? "Already in Print Queue"
+                            : "Add to Print Queue",
+                        systemImage: "list.bullet.rectangle"
+                    )
+                }
+                .disabled(printQueue.contains(identifier: item.identifier))
 
                 Button {
                     showMoveSheet = true
@@ -152,6 +203,21 @@ struct ItemDetailView: View {
                 MoveItemView(item: item)
             }
         }
+        .sheet(isPresented: $showAddHomeLocation) {
+            NavigationStack {
+                HomeLocationPickerView(
+                    existingHouseIDs: Set(item.homeLocations.compactMap { $0.house?.persistentModelID })
+                ) { house, location, container in
+                    try? HomeLocationService.addHomeLocation(
+                        for: item,
+                        house: house,
+                        location: location,
+                        container: container,
+                        context: modelContext
+                    )
+                }
+            }
+        }
         .confirmationDialog(
             "Delete \(item.name)?",
             isPresented: $showDeleteConfirmation,
@@ -169,10 +235,11 @@ struct ItemDetailView: View {
             CameraView { capturedImage in
                 let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
                 let context = modelContext
+                let nextOrder = (item.photos.map(\.sortOrder).max() ?? -1) + 1
                 Task.detached {
                     let compressed = compressImageForGallery(data: data, maxDimension: 1200)
                     await MainActor.run {
-                        let photo = Photo(imageData: compressed)
+                        let photo = Photo(imageData: compressed, sortOrder: nextOrder)
                         context.insert(photo)
                         item.photos.append(photo)
                     }
@@ -192,5 +259,47 @@ struct ItemDetailView: View {
                 item.lastLabelPrintedAt = .now
             }
         }
+        .overlay {
+            if showAddedToQueue {
+                addedToQueueOverlay
+            }
+        }
+    }
+
+    private func setCurrentLocationAsHome() {
+        guard let house = item.resolvedHouse else { return }
+        // Determine the deepest location and container for the current position
+        let location: Location?
+        let container: Container?
+
+        if let itemContainer = item.container {
+            container = itemContainer
+            location = itemContainer.resolvedLocation
+        } else {
+            container = nil
+            location = item.location
+        }
+
+        HomeLocationService.setHomeLocation(
+            for: item,
+            house: house,
+            location: location,
+            container: container,
+            context: modelContext
+        )
+    }
+
+    private var addedToQueueOverlay: some View {
+        Text("Added to Print Queue")
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: Capsule())
+            .transition(.scale.combined(with: .opacity))
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation { showAddedToQueue = false }
+                }
+            }
     }
 }

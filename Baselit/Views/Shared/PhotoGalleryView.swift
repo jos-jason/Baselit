@@ -2,7 +2,9 @@ import SwiftUI
 import PhotosUI
 import SwiftData
 
-/// Displays a horizontal scrollable gallery of photos with the ability to add and delete.
+/// Displays a horizontal scrollable gallery of photos with the ability to add, delete, and reorder.
+/// Long-press a thumbnail to enter "jiggle mode" where photos can be reordered and deleted,
+/// similar to the iOS home screen app editing mode.
 /// Uses callbacks instead of @Binding to avoid SwiftData @Relationship mutation crashes.
 struct PhotoGalleryView: View {
     var photos: [Photo]
@@ -11,47 +13,37 @@ struct PhotoGalleryView: View {
     @Binding var showCamera: Bool
 
     @Environment(\.modelContext) private var modelContext
-    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var fullScreenPhoto: Photo?
-    @State private var photoToDelete: Photo?
     @State private var isProcessing = false
+    @State private var isEditingOrder = false
+    @State private var orderVersion = 0
 
     private static let cameraAvailable = UIImagePickerController.isSourceTypeAvailable(.camera)
+
+    private var sortedPhotos: [Photo] {
+        photos.sorted { $0.sortOrder < $1.sortOrder }
+    }
 
     var body: some View {
         Group {
             if !photos.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(photos.sorted(by: { $0.createdAt < $1.createdAt })) { photo in
-                            GalleryThumbnail(photo: photo)
-                                .onTapGesture {
-                                    fullScreenPhoto = photo
-                                }
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        photoToDelete = photo
-                                    } label: {
-                                        Label("Delete Photo", systemImage: "trash")
-                                    }
-                                }
-                        }
-                    }
-                }
+                photoStrip
                 .fullScreenCover(item: $fullScreenPhoto) { photo in
                     FullScreenPhotoView(photo: photo)
                 }
             }
 
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                Label(isProcessing ? "Adding…" : "Choose Photo", systemImage: "photo.badge.plus")
+            PhotosPicker(selection: $selectedPhotoItems, matching: .images) {
+                Label(isProcessing ? "Adding…" : "Choose Photos", systemImage: "photo.badge.plus")
             }
             .buttonStyle(.borderless)
             .disabled(isProcessing)
-            .onChange(of: selectedPhotoItem) { _, newItem in
-                guard let newItem else { return }
-                selectedPhotoItem = nil
-                addFromPicker(item: newItem)
+            .onChange(of: selectedPhotoItems) { _, newItems in
+                guard !newItems.isEmpty else { return }
+                let items = newItems
+                selectedPhotoItems = []
+                addFromPicker(items: items)
             }
 
             if Self.cameraAvailable {
@@ -63,49 +55,174 @@ struct PhotoGalleryView: View {
                 .buttonStyle(.borderless)
             }
         }
-        .confirmationDialog(
-            "Delete this photo?",
-            isPresented: Binding(
-                get: { photoToDelete != nil },
-                set: { if !$0 { photoToDelete = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                if let photo = photoToDelete {
-                    onDelete(photo)
-                    modelContext.delete(photo)
-                    photoToDelete = nil
+    }
+
+    private var photoStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if isEditingOrder {
+                HStack {
+                    Text("Reorder Photos")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Done") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isEditingOrder = false
+                        }
+                    }
+                    .font(.subheadline.bold())
                 }
             }
-            Button("Cancel", role: .cancel) {
-                photoToDelete = nil
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(sortedPhotos) { photo in
+                        if isEditingOrder {
+                            editableThumbnail(for: photo)
+                        } else {
+                            normalThumbnail(for: photo)
+                        }
+                    }
+                }
+                .id(orderVersion)
+                .padding(.vertical, isEditingOrder ? 6 : 0)
             }
         }
     }
 
-    private func addFromPicker(item: PhotosPickerItem) {
+    @ViewBuilder
+    private func normalThumbnail(for photo: Photo) -> some View {
+        GalleryThumbnail(photo: photo)
+            .onTapGesture {
+                fullScreenPhoto = photo
+            }
+            .onLongPressGesture {
+                ensureUniqueSortOrders()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isEditingOrder = true
+                }
+            }
+    }
+
+    /// Ensures every photo has a unique sortOrder before entering edit mode.
+    /// Photos that were created before sortOrder existed all default to 0.
+    private func ensureUniqueSortOrders() {
+        let sorted = photos.sorted {
+            if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+            return $0.createdAt < $1.createdAt
+        }
+        for (i, photo) in sorted.enumerated() where photo.sortOrder != i {
+            photo.sortOrder = i
+        }
+        orderVersion += 1
+    }
+
+    @ViewBuilder
+    private func editableThumbnail(for photo: Photo) -> some View {
+        let sorted = sortedPhotos
+        let index = sorted.firstIndex(where: { $0.persistentModelID == photo.persistentModelID })
+        let isFirst = index == sorted.startIndex
+        let isLast = index == sorted.index(before: sorted.endIndex)
+
+        GalleryThumbnail(photo: photo)
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    withAnimation {
+                        onDelete(photo)
+                        modelContext.delete(photo)
+                        if photos.count <= 1 {
+                            isEditingOrder = false
+                        }
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .red)
+                }
+                .offset(x: 6, y: -6)
+            }
+            .overlay(alignment: .bottom) {
+                HStack(spacing: 16) {
+                    if !isFirst, let index {
+                        Button {
+                            withAnimation { swapOrder(sorted[index], sorted[index - 1]) }
+                        } label: {
+                            Image(systemName: "chevron.left.circle.fill")
+                                .font(.title2)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.5))
+                        }
+                    }
+                    if !isLast, let index {
+                        Button {
+                            withAnimation { swapOrder(sorted[index], sorted[index + 1]) }
+                        } label: {
+                            Image(systemName: "chevron.right.circle.fill")
+                                .font(.title2)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.5))
+                        }
+                    }
+                }
+                .offset(y: -8)
+            }
+            .jiggleEffect()
+    }
+
+    private func swapOrder(_ a: Photo, _ b: Photo) {
+        let temp = a.sortOrder
+        a.sortOrder = b.sortOrder
+        b.sortOrder = temp
+        orderVersion += 1
+    }
+
+    private func addFromPicker(items: [PhotosPickerItem]) {
         isProcessing = true
+        let nextSortOrder = (photos.map(\.sortOrder).max() ?? -1) + 1
         Task {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                compressAndAdd(data: data)
+            for (index, item) in items.enumerated() {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    compressAndAdd(data: data, sortOrder: nextSortOrder + index)
+                }
             }
             isProcessing = false
         }
     }
 
     /// Compresses image data on a background thread, then inserts the photo on the main actor.
-    private func compressAndAdd(data: Data) {
+    private func compressAndAdd(data: Data, sortOrder: Int) {
         let context = modelContext
         let addCallback = onAdd
         Task.detached {
             let compressed = compressImageForGallery(data: data, maxDimension: 1200)
             await MainActor.run {
-                let photo = Photo(imageData: compressed)
+                let photo = Photo(imageData: compressed, sortOrder: sortOrder)
                 context.insert(photo)
                 addCallback(photo)
             }
         }
+    }
+}
+
+/// A jiggle animation modifier that mimics the iOS home screen editing wobble.
+struct JiggleModifier: ViewModifier {
+    @State private var isJiggling = false
+
+    func body(content: Content) -> some View {
+        content
+            .rotationEffect(.degrees(isJiggling ? -1.5 : 1.5))
+            .animation(
+                .easeInOut(duration: 0.12)
+                .repeatForever(autoreverses: true),
+                value: isJiggling
+            )
+            .onAppear { isJiggling = true }
+    }
+}
+
+extension View {
+    func jiggleEffect() -> some View {
+        modifier(JiggleModifier())
     }
 }
 

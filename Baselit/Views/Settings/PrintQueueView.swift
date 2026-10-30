@@ -7,6 +7,9 @@ struct PrintQueueView: View {
     @State private var generatedPDFData: Data?
     @State private var isGenerating = false
     @State private var labelSize: LabelSize = .full
+    @State private var selectedIdentifiers: Set<String> = []
+    @State private var showPrintConfirmation = false
+    @State private var printedIdentifiers: Set<String> = []
 
     enum LabelSize: String, CaseIterable {
         case full = "Full"
@@ -46,6 +49,12 @@ struct PrintQueueView: View {
                     Section {
                         ForEach(printQueue.entries) { entry in
                             HStack(spacing: 12) {
+                                Image(systemName: selectedIdentifiers.contains(entry.identifier)
+                                      ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedIdentifiers.contains(entry.identifier)
+                                                    ? .primary : .secondary)
+                                    .font(.title3)
+
                                 Image(systemName: entry.type == "container" ? "archivebox" : "shippingbox")
                                     .foregroundStyle(.secondary)
 
@@ -60,8 +69,11 @@ struct PrintQueueView: View {
 
                                 Spacer()
                             }
+                            .contentShape(Rectangle())
+                            .onTapGesture { toggleSelection(entry) }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
+                                    selectedIdentifiers.remove(entry.identifier)
                                     printQueue.remove(entry)
                                 } label: {
                                     Label("Remove", systemImage: "trash")
@@ -70,9 +82,15 @@ struct PrintQueueView: View {
                         }
                     } header: {
                         HStack {
-                            Text("\(printQueue.count) label\(printQueue.count == 1 ? "" : "s") queued")
+                            Text("\(selectedIdentifiers.count) of \(printQueue.count) selected")
                             Spacer()
+                            Button(allSelected ? "Deselect All" : "Select All") {
+                                toggleSelectAll()
+                            }
+                            .font(.caption)
+                            .textCase(nil)
                             Button("Clear All") {
+                                selectedIdentifiers.removeAll()
                                 printQueue.removeAll()
                             }
                             .font(.caption)
@@ -94,30 +112,75 @@ struct PrintQueueView: View {
                         if isGenerating {
                             ProgressView()
                         } else {
-                            Text("Print (\(printQueue.count))")
+                            Text("Print (\(selectedIdentifiers.count))")
                         }
                     }
-                    .disabled(printQueue.isEmpty || isGenerating)
+                    .disabled(selectedIdentifiers.isEmpty || isGenerating)
                 }
             }
-            .sheet(isPresented: $showShareSheet) {
+            .sheet(isPresented: $showShareSheet, onDismiss: {
+                showPrintConfirmation = true
+            }) {
                 if let data = generatedPDFData {
                     ShareSheet(activityItems: [data])
                 }
             }
+            .confirmationDialog(
+                "Did you print the labels successfully?",
+                isPresented: $showPrintConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Yes, remove from queue") {
+                    removePrintedEntries()
+                }
+                Button("No, keep in queue", role: .cancel) {}
+            } message: {
+                Text("\(printedIdentifiers.count) label\(printedIdentifiers.count == 1 ? "" : "s") were sent to print.")
+            }
+            .onAppear {
+                selectedIdentifiers = Set(printQueue.entries.map(\.identifier))
+            }
         }
     }
+
+    // MARK: - Selection
+
+    private var allSelected: Bool {
+        !printQueue.isEmpty && printQueue.entries.allSatisfy { selectedIdentifiers.contains($0.identifier) }
+    }
+
+    private func toggleSelection(_ entry: PrintQueueService.QueueEntry) {
+        if selectedIdentifiers.contains(entry.identifier) {
+            selectedIdentifiers.remove(entry.identifier)
+        } else {
+            selectedIdentifiers.insert(entry.identifier)
+        }
+    }
+
+    private func toggleSelectAll() {
+        if allSelected {
+            selectedIdentifiers.removeAll()
+        } else {
+            selectedIdentifiers = Set(printQueue.entries.map(\.identifier))
+        }
+    }
+
+    // MARK: - Generate
 
     private func generateAndShare() {
         isGenerating = true
 
-        let labelEntries = printQueue.entries.map { entry in
-            LabelGenerator.LabelEntry(
-                name: entry.name,
-                identifier: entry.identifier,
-                type: entry.type
-            )
-        }
+        printedIdentifiers = selectedIdentifiers
+
+        let labelEntries = printQueue.entries
+            .filter { selectedIdentifiers.contains($0.identifier) }
+            .map { entry in
+                LabelGenerator.LabelEntry(
+                    name: entry.name,
+                    identifier: entry.identifier,
+                    type: entry.type
+                )
+            }
 
         let useMini = labelSize == .mini
         Task.detached {
@@ -133,5 +196,14 @@ struct PrintQueueView: View {
                 showShareSheet = true
             }
         }
+    }
+
+    private func removePrintedEntries() {
+        let toRemove = printQueue.entries.filter { printedIdentifiers.contains($0.identifier) }
+        for entry in toRemove {
+            printQueue.remove(entry)
+        }
+        selectedIdentifiers.subtract(printedIdentifiers)
+        printedIdentifiers.removeAll()
     }
 }

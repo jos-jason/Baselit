@@ -32,6 +32,9 @@ final class Item {
     @Relationship(deleteRule: .cascade, inverse: \Photo.item)
     var photos: [Photo] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \HomeLocation.item)
+    var homeLocations: [HomeLocation] = []
+
     init(name: String, quantity: Int = 1) {
         self.name = name
         self.quantity = quantity

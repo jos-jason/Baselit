@@ -12,6 +12,35 @@ struct BackupManifest: Codable {
     let items: [ExportItem]
     let tags: [ExportTag]
     let photos: [ExportPhoto]
+    let homeLocations: [ExportHomeLocation]
+
+    /// Backward-compatible decoding: older backups without homeLocations decode to empty array.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        exportDate = try container.decode(Date.self, forKey: .exportDate)
+        includesPhotos = try container.decode(Bool.self, forKey: .includesPhotos)
+        houses = try container.decode([ExportHouse].self, forKey: .houses)
+        locations = try container.decode([ExportLocation].self, forKey: .locations)
+        containers = try container.decode([ExportContainer].self, forKey: .containers)
+        items = try container.decode([ExportItem].self, forKey: .items)
+        tags = try container.decode([ExportTag].self, forKey: .tags)
+        photos = try container.decode([ExportPhoto].self, forKey: .photos)
+        homeLocations = try container.decodeIfPresent([ExportHomeLocation].self, forKey: .homeLocations) ?? []
+    }
+
+    init(version: Int, exportDate: Date, includesPhotos: Bool, houses: [ExportHouse], locations: [ExportLocation], containers: [ExportContainer], items: [ExportItem], tags: [ExportTag], photos: [ExportPhoto], homeLocations: [ExportHomeLocation]) {
+        self.version = version
+        self.exportDate = exportDate
+        self.includesPhotos = includesPhotos
+        self.houses = houses
+        self.locations = locations
+        self.containers = containers
+        self.items = items
+        self.tags = tags
+        self.photos = photos
+        self.homeLocations = homeLocations
+    }
 }
 
 // MARK: - Entity DTOs
@@ -157,15 +186,53 @@ struct ExportTag: Codable {
     let name: String
 }
 
+struct ExportHomeLocation: Codable {
+    let exportID: UUID
+    let createdAt: Date
+    let updatedAt: Date
+    let houseExportID: UUID
+    let locationExportID: UUID?
+    let containerExportID: UUID?
+    let itemExportID: UUID?
+    let ownerContainerExportID: UUID?
+}
+
 struct ExportPhoto: Codable {
     let exportID: UUID
     let filename: String
     let caption: String?
     let createdAt: Date
+    let sortOrder: Int
     let houseExportID: UUID?
     let locationExportID: UUID?
     let containerExportID: UUID?
     let itemExportID: UUID?
+
+    /// Backward-compatible decoding: older backups without sortOrder decode to 0.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        exportID = try container.decode(UUID.self, forKey: .exportID)
+        filename = try container.decode(String.self, forKey: .filename)
+        caption = try container.decodeIfPresent(String.self, forKey: .caption)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        sortOrder = try container.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
+        houseExportID = try container.decodeIfPresent(UUID.self, forKey: .houseExportID)
+        locationExportID = try container.decodeIfPresent(UUID.self, forKey: .locationExportID)
+        containerExportID = try container.decodeIfPresent(UUID.self, forKey: .containerExportID)
+        itemExportID = try container.decodeIfPresent(UUID.self, forKey: .itemExportID)
+    }
+
+    init(exportID: UUID, filename: String, caption: String?, createdAt: Date, sortOrder: Int, houseExportID: UUID?, locationExportID: UUID?, containerExportID: UUID?, itemExportID: UUID?) {
+        self.exportID = exportID
+        self.filename = filename
+        self.caption = caption
+        self.createdAt = createdAt
+        self.sortOrder = sortOrder
+        self.houseExportID = houseExportID
+        self.locationExportID = locationExportID
+        self.containerExportID = containerExportID
+        self.itemExportID = itemExportID
+    }
 }
 
 // MARK: - Import Support Types
@@ -210,6 +277,7 @@ struct ImportResult {
     var itemsImported: Int = 0
     var tagsImported: Int = 0
     var photosImported: Int = 0
+    var homeLocationsImported: Int = 0
     var skipped: Int = 0
     var conflicts: Int = 0
 }

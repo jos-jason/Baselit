@@ -96,6 +96,13 @@ enum BackupImportService {
             return false
         }
 
+        // HomeLocations: only import home locations whose owner is being imported
+        let homeLocationsToImport = manifest.homeLocations.filter { hl in
+            if let iid = hl.itemExportID { return !skippedItemIDs.contains(iid) }
+            if let cid = hl.ownerContainerExportID { return !skippedContainerIDs.contains(cid) }
+            return false
+        }
+
         let filteredManifest = BackupManifest(
             version: manifest.version,
             exportDate: manifest.exportDate,
@@ -105,7 +112,8 @@ enum BackupImportService {
             containers: containersToImport,
             items: itemsToImport,
             tags: tagsToImport,
-            photos: photosToImport
+            photos: photosToImport,
+            homeLocations: homeLocationsToImport
         )
 
         result = try importAllEntities(
@@ -497,6 +505,20 @@ enum BackupImportService {
                                                   containerMap: containerMap, itemMap: itemMap,
                                                   skipExportIDs: nil)
 
+        // Import Home Locations
+        for exportHL in manifest.homeLocations {
+            guard let house = houseMap[exportHL.houseExportID] else { continue }
+            let hl = HomeLocation(house: house)
+            hl.location = exportHL.locationExportID.flatMap { locationMap[$0] }
+            hl.container = exportHL.containerExportID.flatMap { containerMap[$0] }
+            hl.item = exportHL.itemExportID.flatMap { itemMap[$0] }
+            hl.ownerContainer = exportHL.ownerContainerExportID.flatMap { containerMap[$0] }
+            hl.createdAt = exportHL.createdAt
+            hl.updatedAt = exportHL.updatedAt
+            context.insert(hl)
+            result.homeLocationsImported += 1
+        }
+
         try context.save()
         return result
     }
@@ -595,6 +617,20 @@ enum BackupImportService {
                                                   containerMap: containerMap, itemMap: itemMap,
                                                   skipExportIDs: nil)
 
+        // Home Locations
+        for exportHL in manifest.homeLocations {
+            guard let house = houseMap[exportHL.houseExportID] else { continue }
+            let hl = HomeLocation(house: house)
+            hl.location = exportHL.locationExportID.flatMap { locationMap[$0] }
+            hl.container = exportHL.containerExportID.flatMap { containerMap[$0] }
+            hl.item = exportHL.itemExportID.flatMap { itemMap[$0] }
+            hl.ownerContainer = exportHL.ownerContainerExportID.flatMap { containerMap[$0] }
+            hl.createdAt = exportHL.createdAt
+            hl.updatedAt = exportHL.updatedAt
+            context.insert(hl)
+            result.homeLocationsImported += 1
+        }
+
         try context.save()
         return result
     }
@@ -638,7 +674,7 @@ enum BackupImportService {
                 }
             }
 
-            let photo = Photo(imageData: imageData, caption: exportPhoto.caption)
+            let photo = Photo(imageData: imageData, caption: exportPhoto.caption, sortOrder: exportPhoto.sortOrder)
             photo.createdAt = exportPhoto.createdAt
             photo.house = ownerHouse
             photo.location = ownerLocation
@@ -655,6 +691,9 @@ enum BackupImportService {
 
     private static func deleteAllData(in context: ModelContext) throws {
         // Delete in reverse dependency order
+        let homeLocations = try context.fetch(FetchDescriptor<HomeLocation>())
+        for hl in homeLocations { context.delete(hl) }
+
         let photos = try context.fetch(FetchDescriptor<Photo>())
         for photo in photos { context.delete(photo) }
 

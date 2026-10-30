@@ -1,0 +1,9 @@
+.DS_Store
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# Loose design exports and screenshots
+/Icon Exports/
+/Icon Exports 2/
+/*.png

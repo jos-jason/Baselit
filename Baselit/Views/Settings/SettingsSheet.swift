@@ -3,7 +3,9 @@ import UIKit
 
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(PrintQueueService.self) private var printQueue
     @State private var showBatchLabels = false
+    @State private var showPrintQueue = false
     @State private var showExportBackup = false
     @State private var showImportBackup = false
     @State private var showBulkCaptureItems = false
@@ -17,6 +19,23 @@ struct SettingsSheet: View {
                         showBatchLabels = true
                     } label: {
                         Label("Print Labels", systemImage: "printer")
+                    }
+
+                    Button {
+                        showPrintQueue = true
+                    } label: {
+                        HStack {
+                            Label("Print Queue", systemImage: "list.bullet.rectangle")
+                            Spacer()
+                            if printQueue.count > 0 {
+                                Text("\(printQueue.count)")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(.blue, in: Capsule())
+                            }
+                        }
                     }
                 }
 
@@ -59,6 +78,9 @@ struct SettingsSheet: View {
             }
             .sheet(isPresented: $showBatchLabels) {
                 BatchLabelView()
+            }
+            .sheet(isPresented: $showPrintQueue) {
+                PrintQueueView()
             }
             .sheet(isPresented: $showExportBackup) {
                 ExportBackupView()

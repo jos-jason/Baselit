@@ -245,10 +245,11 @@ struct LocationDetailView: View {
             CameraView { capturedImage in
                 let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
                 let context = modelContext
+                let nextOrder = (location.photos.map(\.sortOrder).max() ?? -1) + 1
                 Task.detached {
                     let compressed = compressImageForGallery(data: data, maxDimension: 1200)
                     await MainActor.run {
-                        let photo = Photo(imageData: compressed)
+                        let photo = Photo(imageData: compressed, sortOrder: nextOrder)
                         context.insert(photo)
                         location.photos.append(photo)
                     }

@@ -13,9 +13,12 @@ struct ContainerDetailView: View {
     @State private var showMoveContainer = false
     @State private var showCamera = false
     @State private var showShareSheet = false
+    @State private var showAddedToQueue = false
     @State private var showBubbleGrid = false
+    @Environment(PrintQueueService.self) private var printQueue
     @State private var showBulkCaptureItems = false
     @State private var showBulkCaptureContainers = false
+    @State private var showAddHomeLocation = false
 
     /// Recursively collect all items and sub-containers within this container.
     private var allBubbleEntries: [BubbleEntry] {
@@ -76,6 +79,37 @@ struct ContainerDetailView: View {
                         Text(printedAt, format: .dateTime.month(.abbreviated).day().year().hour().minute())
                             .foregroundStyle(.secondary)
                     }
+                }
+            }
+
+            // Home locations (where this container belongs)
+            Section("Belongs") {
+                ForEach(container.homeLocations.sorted(by: {
+                    ($0.house?.name ?? "") < ($1.house?.name ?? "")
+                })) { homeLocation in
+                    BreadcrumbView(components: homeLocation.breadcrumbComponents)
+                }
+                .onDelete { offsets in
+                    let sorted = container.homeLocations.sorted(by: {
+                        ($0.house?.name ?? "") < ($1.house?.name ?? "")
+                    })
+                    for index in offsets {
+                        modelContext.delete(sorted[index])
+                    }
+                }
+
+                if container.resolvedHouse != nil {
+                    Button {
+                        setCurrentLocationAsHome()
+                    } label: {
+                        Label("Set Current Location as Home", systemImage: "house.fill")
+                    }
+                }
+
+                Button {
+                    showAddHomeLocation = true
+                } label: {
+                    Label("Add Home Location", systemImage: "house.badge.plus")
                 }
             }
 
@@ -162,6 +196,23 @@ struct ContainerDetailView: View {
                 } label: {
                     Label("Print Label", systemImage: "qrcode")
                 }
+
+                Button {
+                    printQueue.add(PrintQueueService.QueueEntry(
+                        name: container.name,
+                        identifier: container.identifier,
+                        type: "container"
+                    ))
+                    showAddedToQueue = true
+                } label: {
+                    Label(
+                        printQueue.contains(identifier: container.identifier)
+                            ? "Already in Print Queue"
+                            : "Add to Print Queue",
+                        systemImage: "list.bullet.rectangle"
+                    )
+                }
+                .disabled(printQueue.contains(identifier: container.identifier))
 
                 Button {
                     showMoveContainer = true
@@ -284,6 +335,21 @@ struct ContainerDetailView: View {
                 MoveContainerView(container: container)
             }
         }
+        .sheet(isPresented: $showAddHomeLocation) {
+            NavigationStack {
+                HomeLocationPickerView(
+                    existingHouseIDs: Set(container.homeLocations.compactMap { $0.house?.persistentModelID })
+                ) { house, location, targetContainer in
+                    try? HomeLocationService.addHomeLocation(
+                        for: container,
+                        house: house,
+                        location: location,
+                        targetContainer: targetContainer,
+                        context: modelContext
+                    )
+                }
+            }
+        }
         .fullScreenCover(isPresented: $showBulkCaptureItems) {
             BulkCaptureView(mode: .items, targetContainer: container)
         }
@@ -294,10 +360,11 @@ struct ContainerDetailView: View {
             CameraView { capturedImage in
                 let data = capturedImage.jpegData(compressionQuality: 0.9) ?? Data()
                 let context = modelContext
+                let nextOrder = (container.photos.map(\.sortOrder).max() ?? -1) + 1
                 Task.detached {
                     let compressed = compressImageForGallery(data: data, maxDimension: 1200)
                     await MainActor.run {
-                        let photo = Photo(imageData: compressed)
+                        let photo = Photo(imageData: compressed, sortOrder: nextOrder)
                         context.insert(photo)
                         container.photos.append(photo)
                     }
@@ -317,6 +384,47 @@ struct ContainerDetailView: View {
                 container.lastLabelPrintedAt = .now
             }
         }
+        .overlay {
+            if showAddedToQueue {
+                addedToQueueOverlay
+            }
+        }
+    }
+
+    private func setCurrentLocationAsHome() {
+        guard let house = container.resolvedHouse else { return }
+        let location: Location?
+        let parentContainer: Container?
+
+        if let parent = container.parentContainer {
+            parentContainer = parent
+            location = parent.resolvedLocation
+        } else {
+            parentContainer = nil
+            location = container.resolvedLocation
+        }
+
+        HomeLocationService.setHomeLocation(
+            for: container,
+            house: house,
+            location: location,
+            targetContainer: parentContainer,
+            context: modelContext
+        )
+    }
+
+    private var addedToQueueOverlay: some View {
+        Text("Added to Print Queue")
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: Capsule())
+            .transition(.scale.combined(with: .opacity))
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation { showAddedToQueue = false }
+                }
+            }
     }
 
     private func addSubContainer() {

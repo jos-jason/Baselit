@@ -21,6 +21,9 @@ final class House {
     @Relationship(deleteRule: .cascade, inverse: \Photo.house)
     var photos: [Photo] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \HomeLocation.house)
+    var homeLocations: [HomeLocation] = []
+
     init(name: String, address: String? = nil, notes: String? = nil) {
         self.name = name
         self.address = address

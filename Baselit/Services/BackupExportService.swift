@@ -21,6 +21,7 @@ enum BackupExportService {
         let items = try InventoryService.allItems(in: context)
         let tags = try InventoryService.allTags(in: context)
         let photos = try fetchAllPhotos(in: context)
+        let homeLocations = try fetchAllHomeLocations(in: context)
 
         // 2. Build export ID maps
         var houseIDMap: [ObjectIdentifier: UUID] = [:]
@@ -36,6 +37,9 @@ enum BackupExportService {
         for item in items { itemIDMap[ObjectIdentifier(item)] = UUID() }
         for tag in tags { tagIDMap[ObjectIdentifier(tag)] = UUID() }
         for photo in photos { photoIDMap[ObjectIdentifier(photo)] = UUID() }
+
+        var homeLocationIDMap: [ObjectIdentifier: UUID] = [:]
+        for hl in homeLocations { homeLocationIDMap[ObjectIdentifier(hl)] = UUID() }
 
         // 3. Convert to DTOs
         let exportHouses = houses.map { house in
@@ -114,6 +118,7 @@ enum BackupExportService {
                 filename: "photo_\(eid.uuidString).jpg",
                 caption: photo.caption,
                 createdAt: photo.createdAt,
+                sortOrder: photo.sortOrder,
                 houseExportID: photo.house.map { houseIDMap[ObjectIdentifier($0)] } ?? nil,
                 locationExportID: photo.location.map { locationIDMap[ObjectIdentifier($0)] } ?? nil,
                 containerExportID: photo.container.map { containerIDMap[ObjectIdentifier($0)] } ?? nil,
@@ -121,9 +126,23 @@ enum BackupExportService {
             )
         }
 
+        let exportHomeLocations = homeLocations.compactMap { hl -> ExportHomeLocation? in
+            guard let house = hl.house, let houseEID = houseIDMap[ObjectIdentifier(house)] else { return nil }
+            return ExportHomeLocation(
+                exportID: homeLocationIDMap[ObjectIdentifier(hl)]!,
+                createdAt: hl.createdAt,
+                updatedAt: hl.updatedAt,
+                houseExportID: houseEID,
+                locationExportID: hl.location.flatMap { locationIDMap[ObjectIdentifier($0)] },
+                containerExportID: hl.container.flatMap { containerIDMap[ObjectIdentifier($0)] },
+                itemExportID: hl.item.flatMap { itemIDMap[ObjectIdentifier($0)] },
+                ownerContainerExportID: hl.ownerContainer.flatMap { containerIDMap[ObjectIdentifier($0)] }
+            )
+        }
+
         // 4. Build manifest
         let manifest = BackupManifest(
-            version: 1,
+            version: 2,
             exportDate: .now,
             includesPhotos: options.includePhotos,
             houses: exportHouses,
@@ -131,7 +150,8 @@ enum BackupExportService {
             containers: exportContainers,
             items: exportItems,
             tags: exportTags,
-            photos: exportPhotos
+            photos: exportPhotos,
+            homeLocations: exportHomeLocations
         )
 
         // 5. Create temp directory
@@ -247,6 +267,9 @@ enum BackupExportService {
         - An **Item** is a physical object stored in a container or directly in a location.
         - **Tags** provide cross-cutting labels for items (many-to-many relationship).
         - **Photos** can be attached to any entity (house, location, container, or item).
+        - **HomeLocations** track where items and containers "belong" (get put away) at each
+          house, separate from where they currently are. An item might currently be in transit
+          but belong in the garage at the primary home and in the attic at the vacation cabin.
         
         ---
         
@@ -277,7 +300,8 @@ enum BackupExportService {
             "containers": [...],
             "items": [...],
             "tags": [...],
-            "photos": [...]
+            "photos": [...],
+            "homeLocations": [...]
         }
         ```
         
@@ -401,6 +425,25 @@ enum BackupExportService {
         files will not exist in the `photos/` directory — the data can still be fully
         restored without images.
         
+        ### HomeLocation
+        
+        ```json
+        {
+            "exportID": "UUID",
+            "createdAt": "ISO8601 date",
+            "updatedAt": "ISO8601 date",
+            "houseExportID": "UUID — references a House.exportID (always set)",
+            "locationExportID": "UUID? — references a Location.exportID (optional deeper path)",
+            "containerExportID": "UUID? — references a Container.exportID (optional target container)",
+            "itemExportID": "UUID? — references an Item.exportID (if this belongs-to is for an item)",
+            "ownerContainerExportID": "UUID? — references a Container.exportID (if this belongs-to is for a container)"
+        }
+        ```
+        
+        **Purpose:** HomeLocations describe where an item or container gets "put away" at each
+        house. This is separate from current physical location. An item can have one HomeLocation
+        per house. Exactly one of `itemExportID` or `ownerContainerExportID` will be non-null.
+        
         ---
         
         ## Enum Values
@@ -461,6 +504,8 @@ enum BackupExportService {
                 │     └─► Photo       — itemExportID → Item.exportID
                 └─► Photo             — locationExportID → Location.exportID
           └─► Photo                   — houseExportID → House.exportID
+          └─► HomeLocation             — houseExportID → House.exportID
+                                         + itemExportID or ownerContainerExportID → owner
         ```
         
         ---
@@ -512,6 +557,7 @@ enum BackupExportService {
         - Items: \(manifest.items.count)
         - Tags: \(manifest.tags.count)
         - Photos: \(manifest.photos.count)
+        - Home Locations: \(manifest.homeLocations.count)
         
         ---
         
@@ -529,6 +575,11 @@ enum BackupExportService {
 
     private static func fetchAllPhotos(in context: ModelContext) throws -> [Photo] {
         let descriptor = FetchDescriptor<Photo>(sortBy: [SortDescriptor(\Photo.createdAt)])
+        return try context.fetch(descriptor)
+    }
+
+    private static func fetchAllHomeLocations(in context: ModelContext) throws -> [HomeLocation] {
+        let descriptor = FetchDescriptor<HomeLocation>(sortBy: [SortDescriptor(\HomeLocation.createdAt)])
         return try context.fetch(descriptor)
     }
 }
