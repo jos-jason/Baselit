@@ -11,7 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<void> _loadFont(String family, String path) async {
-  final loader = FontLoader(family)..addFont(Future.value(ByteData.sublistView(File(path).readAsBytesSync())));
+  final loader = FontLoader(family)
+    ..addFont(Future.value(ByteData.sublistView(File(path).readAsBytesSync())));
   await loader.load();
 }
 
@@ -22,8 +23,15 @@ InventoryStore _sampleStore() {
   final garage = Location(name: 'Garage', houseID: lake.exportID);
   final kitchen = Location(name: 'Kitchen', houseID: lake.exportID);
   final office = Location(name: 'Office', houseID: home.exportID);
-  final bin = StorageContainer(name: 'Tool Bin', containerType: 'Bin', locationID: garage.exportID);
-  final drawer = StorageContainer(name: 'Junk Drawer', locationID: kitchen.exportID);
+  final bin = StorageContainer(
+    name: 'Tool Bin',
+    containerType: 'Bin',
+    locationID: garage.exportID,
+  );
+  final drawer = StorageContainer(
+    name: 'Junk Drawer',
+    locationID: kitchen.exportID,
+  );
   final drill = Item(
     name: 'Drill',
     itemDescription: 'Cordless, red battery pack',
@@ -43,9 +51,19 @@ InventoryStore _sampleStore() {
       Item(name: 'Laptop Charger', locationID: office.exportID),
       Item(name: 'Camping Lantern'),
       for (var i = 1; i <= 20; i++)
-        Item(name: 'Box $i', createdAt: DateTime(2026, 1, i), locationID: garage.exportID),
+        Item(
+          name: 'Box $i',
+          createdAt: DateTime(2026, 1, i),
+          locationID: garage.exportID,
+        ),
     ]
-    ..homeLocations = [HomeLocation(houseID: lake.exportID, locationID: garage.exportID, itemID: drill.exportID)];
+    ..homeLocations = [
+      HomeLocation(
+        houseID: lake.exportID,
+        locationID: garage.exportID,
+        itemID: drill.exportID,
+      ),
+    ];
   return store;
 }
 
@@ -53,7 +71,10 @@ void main() {
   setUpAll(() async {
     await _loadFont('SF', '/System/Library/Fonts/SFNS.ttf');
     final home = Platform.environment['HOME'];
-    await _loadFont('packages/cupertino_icons/CupertinoIcons', '$home/.pub-cache/hosted/pub.dev/cupertino_icons-2.0.0/assets/CupertinoIcons.ttf');
+    await _loadFont(
+      'packages/cupertino_icons/CupertinoIcons',
+      '$home/.pub-cache/hosted/pub.dev/cupertino_icons-2.0.0/assets/CupertinoIcons.ttf',
+    );
   });
 
   for (final brightness in Brightness.values) {
@@ -64,13 +85,18 @@ void main() {
       addTearDown(tester.view.reset);
       debugDisableShadows = false;
 
-      await tester.pumpWidget(BaselitApp(store: _sampleStore(), fontFamily: 'SF'));
+      await tester.pumpWidget(
+        BaselitApp(store: _sampleStore(), fontFamily: 'SF'),
+      );
       await tester.pumpAndSettle();
       final name = brightness.name;
 
       Future<void> snap(String screen) async {
         await tester.pumpAndSettle();
-        await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/${name}_$screen.png'));
+        await expectLater(
+          find.byType(MaterialApp),
+          matchesGoldenFile('goldens/${name}_$screen.png'),
+        );
       }
 
       await snap('1_search');

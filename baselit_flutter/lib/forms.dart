@@ -257,13 +257,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
 
-  Future<void> _import(InventoryStore store) async {
-    final file = await openFile(
-      acceptedTypeGroups: [
-        const XTypeGroup(label: 'Baselit Backup', extensions: ['zip']),
-      ],
-    );
-    if (file == null || !mounted) return;
+  /// Imports a backup .zip or its JSON file, or with [folder] an unzipped backup folder.
+  Future<void> _import(InventoryStore store, {bool folder = false}) async {
+    final path = folder
+        ? await getDirectoryPath(confirmButtonText: 'Import')
+        : (await openFile(
+            acceptedTypeGroups: [
+              const XTypeGroup(
+                label: 'Baselit Backup',
+                extensions: ['zip', 'json'],
+                uniformTypeIdentifiers: ['public.zip-archive', 'public.json'],
+              ),
+            ],
+          ))?.path;
+    if (path == null || !mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -286,7 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true) return;
     setState(() => _busy = true);
     try {
-      _say('Imported ${await store.importBackup(file.path)}.');
+      _say('Imported ${await store.importBackup(path)}.');
     } catch (error) {
       _say('Import failed: $error');
     } finally {
@@ -334,6 +341,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: _busy ? null : () => _import(store),
             ),
             ListRow(
+              title: 'Import Backup Folder',
+              leading: const RowIcon(CupertinoIcons.folder),
+              trailing: const SizedBox(),
+              onTap: _busy ? null : () => _import(store, folder: true),
+            ),
+            ListRow(
               title: 'Export Backup',
               leading: const RowIcon(CupertinoIcons.square_arrow_up),
               trailing: const SizedBox(),
@@ -345,7 +358,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Text(
             'Backups use the same .zip format as Baselit on iPhone, so you can move your '
-            'inventory between devices by exporting on one and importing on the other.',
+            'inventory between devices by exporting on one and importing on the other. '
+            'If the backup was unzipped into a folder, use Import Backup Folder.',
             style: TextStyles.caption(context),
           ),
         ),

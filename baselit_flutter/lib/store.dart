@@ -27,9 +27,11 @@ class InventoryStore extends ChangeNotifier {
 
   // MARK: - Loading and saving
 
-  Future<void> load() async {
-    final support = await getApplicationSupportDirectory();
-    _root = Directory('${support.path}/inventory');
+  /// [folder] replaces the app's own data folder, for tests.
+  Future<void> load({Directory? folder}) async {
+    _root =
+        folder ??
+        Directory('${(await getApplicationSupportDirectory()).path}/inventory');
     await _photosDir.create(recursive: true);
     if (await _dataFile.exists()) {
       _readManifest(jsonDecode(await _dataFile.readAsString()));
@@ -404,40 +406,82 @@ class InventoryStore extends ChangeNotifier {
 
   // MARK: - Backups
 
-  /// Replaces everything with the contents of an iOS (or Flutter) backup zip.
-  Future<String> importBackup(String zipPath) async {
-    final archive = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());
-    final jsonEntry = archive.files.where(
-      (f) =>
-          f.isFile &&
-          f.name.split('/').last == 'baselit_backup.json' &&
-          !f.name.contains('__MACOSX'),
-    );
-    if (jsonEntry.isEmpty) {
-      throw const FormatException('No baselit_backup.json in this zip.');
-    }
-    final entry = jsonEntry.first;
-    final prefix = entry.name.substring(
-      0,
-      entry.name.length - 'baselit_backup.json'.length,
-    );
+  /// Replaces everything with the contents of an iOS (or Flutter) backup.
+  /// [path] can be the backup .zip, an unzipped backup folder, or the
+  /// `baselit_backup.json` inside one (photos are read from beside it).
+  Future<String> importBackup(String path) async {
+    final List<int> json;
+    final photoFiles = <String, Future<List<int>> Function()>{};
 
-    _readManifest(jsonDecode(utf8.decode(entry.content as List<int>)));
+    if (path.toLowerCase().endsWith('.zip')) {
+      final archive = ZipDecoder().decodeBytes(await File(path).readAsBytes());
+      final jsonEntry = archive.files.where(
+        (f) =>
+            f.isFile &&
+            f.name.split('/').last == _backupJson &&
+            !f.name.contains('__MACOSX'),
+      );
+      if (jsonEntry.isEmpty) {
+        throw const FormatException('No baselit_backup.json in this zip.');
+      }
+      final entry = jsonEntry.first;
+      final prefix = entry.name.substring(
+        0,
+        entry.name.length - _backupJson.length,
+      );
+      json = entry.content as List<int>;
+      for (final file in archive.files) {
+        if (file.isFile && file.name.startsWith('${prefix}photos/')) {
+          photoFiles[file.name.split('/').last] = () async =>
+              file.content as List<int>;
+        }
+      }
+    } else {
+      final jsonFile = await _findBackupJson(path);
+      if (jsonFile == null) {
+        throw const FormatException('No baselit_backup.json in this folder.');
+      }
+      json = await jsonFile.readAsBytes();
+      final photosDir = Directory('${jsonFile.parent.path}/photos');
+      if (await photosDir.exists()) {
+        await for (final entity in photosDir.list()) {
+          if (entity is File) {
+            photoFiles[entity.uri.pathSegments.last] = entity.readAsBytes;
+          }
+        }
+      }
+    }
+
+    _readManifest(jsonDecode(utf8.decode(json)));
 
     if (await _photosDir.exists()) await _photosDir.delete(recursive: true);
     await _photosDir.create(recursive: true);
     var photoCount = 0;
-    for (final file in archive.files) {
-      if (!file.isFile || !file.name.startsWith('${prefix}photos/')) continue;
-      final name = file.name.split('/').last;
+    for (final MapEntry(key: name, value: read) in photoFiles.entries) {
       if (name.isEmpty || name.startsWith('.')) continue;
-      await File('${_photosDir.path}/$name')
-          .writeAsBytes(file.content as List<int>);
+      await File('${_photosDir.path}/$name').writeAsBytes(await read());
       photoCount++;
     }
     await commit();
     return '${houses.length} houses, ${locations.length} locations, '
         '${containers.length} containers, ${items.length} items, $photoCount photos';
+  }
+
+  static const _backupJson = 'baselit_backup.json';
+
+  /// The backup JSON at [path], or inside it (the iOS export puts it one folder down).
+  static Future<File?> _findBackupJson(String path) async {
+    if (path.toLowerCase().endsWith('.json')) return File(path);
+    final dir = Directory(path);
+    final direct = File('${dir.path}/$_backupJson');
+    if (await direct.exists()) return direct;
+    await for (final entity in dir.list()) {
+      if (entity is Directory) {
+        final nested = File('${entity.path}/$_backupJson');
+        if (await nested.exists()) return nested;
+      }
+    }
+    return null;
   }
 
   /// Writes a backup zip the iOS app can import.
