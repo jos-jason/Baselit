@@ -183,7 +183,13 @@ class _SearchTabState extends State<SearchTab> {
     if (query.isEmpty) {
       final entries = bubbleEntries(
         store,
-        houseID: _houseID,
+        items: store.items.where(
+          (i) => _houseID == null || store.itemHouse(i)?.exportID == _houseID,
+        ),
+        containers: store.containers.where(
+          (c) =>
+              _houseID == null || store.containerHouse(c)?.exportID == _houseID,
+        ),
         openItem: (item) => push(context, ItemDetailScreen(item: item)),
         openContainer: (c) =>
             push(context, ContainerDetailScreen(container: c)),

@@ -32,6 +32,10 @@ InventoryStore _sampleStore() {
     name: 'Junk Drawer',
     locationID: kitchen.exportID,
   );
+  final bits = StorageContainer(
+    name: 'Drill Bit Case',
+    parentContainerID: bin.exportID,
+  );
   final drill = Item(
     name: 'Drill',
     itemDescription: 'Cordless, red battery pack',
@@ -42,11 +46,21 @@ InventoryStore _sampleStore() {
   store
     ..houses = [lake, home]
     ..locations = [garage, kitchen, office]
-    ..containers = [bin, drawer]
+    ..containers = [bin, drawer, bits]
     ..items = [
       drill,
       Item(name: 'Hammer', containerID: bin.exportID),
       Item(name: 'Tape Measure', containerID: bin.exportID),
+      for (final name in [
+        'Wrench',
+        'Pliers',
+        'Level',
+        'Utility Knife',
+        'Zip Ties',
+      ])
+        Item(name: name, containerID: bin.exportID),
+      for (var i = 1; i <= 4; i++)
+        Item(name: 'Bit Set $i', containerID: bits.exportID),
       Item(name: 'Batteries', quantity: 12, containerID: drawer.exportID),
       Item(name: 'Laptop Charger', locationID: office.exportID),
       Item(name: 'Camping Lantern'),
@@ -109,8 +123,18 @@ void main() {
       await snap('3_house');
       await tester.tap(find.text('Items').last);
       await snap('4_items');
+      await tester.ensureVisible(find.text('Drill'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Drill'));
       await snap('5_item_detail');
+      await tester.tap(find.text('Containers').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tool Bin').first);
+      await snap('6_container');
+      await tester.ensureVisible(find.text('View All Items & Containers'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View All Items & Containers'));
+      await snap('7_container_bubbles');
       debugDisableShadows = true;
     });
   }

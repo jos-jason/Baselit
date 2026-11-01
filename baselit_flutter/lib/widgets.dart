@@ -20,6 +20,7 @@ class BaselitPage extends StatelessWidget {
     this.leading = const [],
     this.background,
     this.fill,
+    this.showBack = true,
   });
 
   final String title;
@@ -37,9 +38,12 @@ class BaselitPage extends StatelessWidget {
   /// Fills the space under the title and header instead of a scrolling list.
   final Widget? fill;
 
+  /// False for screens that close with their own button, like a full-screen grid.
+  final bool showBack;
+
   @override
   Widget build(BuildContext context) {
-    final canPop = Navigator.of(context).canPop();
+    final canPop = showBack && Navigator.of(context).canPop();
     final titleBlock = [
       if (largeTitle)
         Padding(

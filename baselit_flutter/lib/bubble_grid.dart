@@ -315,33 +315,31 @@ class _Bubble extends StatelessWidget {
   static const baseSizeForCache = _BubbleGridState.baseBubbleSize;
 }
 
-/// Bubbles for every item and container, optionally limited to one house.
+/// Bubbles for the given items and containers.
 List<BubbleEntry> bubbleEntries(
   InventoryStore store, {
-  String? houseID,
+  required Iterable<Item> items,
+  required Iterable<StorageContainer> containers,
   required void Function(Item) openItem,
   required void Function(StorageContainer) openContainer,
 }) {
   Photo? first(List<Photo> photos) => photos.isEmpty ? null : photos.first;
   return [
-    for (final item in store.items)
-      if (houseID == null || store.itemHouse(item)?.exportID == houseID)
-        BubbleEntry(
-          id: 'item-${item.exportID}',
-          createdAt: item.createdAt,
-          icon: CupertinoIcons.cube_box,
-          photo: first(store.photosFor(itemID: item.exportID)),
-          onTap: () => openItem(item),
-        ),
-    for (final container in store.containers)
-      if (houseID == null ||
-          store.containerHouse(container)?.exportID == houseID)
-        BubbleEntry(
-          id: 'container-${container.exportID}',
-          createdAt: container.createdAt,
-          icon: CupertinoIcons.archivebox,
-          photo: first(store.photosFor(containerID: container.exportID)),
-          onTap: () => openContainer(container),
-        ),
+    for (final item in items)
+      BubbleEntry(
+        id: 'item-${item.exportID}',
+        createdAt: item.createdAt,
+        icon: CupertinoIcons.cube_box,
+        photo: first(store.photosFor(itemID: item.exportID)),
+        onTap: () => openItem(item),
+      ),
+    for (final container in containers)
+      BubbleEntry(
+        id: 'container-${container.exportID}',
+        createdAt: container.createdAt,
+        icon: CupertinoIcons.archivebox,
+        photo: first(store.photosFor(containerID: container.exportID)),
+        onTap: () => openContainer(container),
+      ),
   ];
 }

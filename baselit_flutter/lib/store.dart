@@ -254,6 +254,56 @@ class InventoryStore extends ChangeNotifier {
 
   List<Item> get sortedItems => _sorted(items, (i) => i.name);
 
+  // MARK: - Everything inside a place, at any depth (for "View All" bubble grids)
+
+  bool _containerInside(StorageContainer container, StorageContainer outer) {
+    var parent = this.container(container.parentContainerID);
+    final seen = <String>{container.exportID};
+    while (parent != null && seen.add(parent.exportID)) {
+      if (parent.exportID == outer.exportID) return true;
+      parent = this.container(parent.parentContainerID);
+    }
+    return false;
+  }
+
+  bool _locationInside(Location? location, Location outer) {
+    final seen = <String>{};
+    while (location != null && seen.add(location.exportID)) {
+      if (location.exportID == outer.exportID) return true;
+      location = this.location(location.parentLocationID);
+    }
+    return false;
+  }
+
+  List<StorageContainer> containersWithinContainer(StorageContainer outer) =>
+      containers.where((c) => _containerInside(c, outer)).toList();
+
+  List<Item> itemsWithinContainer(StorageContainer outer) => items.where((i) {
+    final container = this.container(i.containerID);
+    return container != null &&
+        (container.exportID == outer.exportID ||
+            _containerInside(container, outer));
+  }).toList();
+
+  List<StorageContainer> containersWithinLocation(Location outer) => containers
+      .where((c) => _locationInside(containerLocation(c), outer))
+      .toList();
+
+  List<Item> itemsWithinLocation(Location outer) => items.where((i) {
+    final container = this.container(i.containerID);
+    final location = container != null
+        ? containerLocation(container)
+        : this.location(i.locationID);
+    return _locationInside(location, outer);
+  }).toList();
+
+  List<StorageContainer> containersWithinHouse(House house) => containers
+      .where((c) => containerHouse(c)?.exportID == house.exportID)
+      .toList();
+
+  List<Item> itemsWithinHouse(House house) =>
+      items.where((i) => itemHouse(i)?.exportID == house.exportID).toList();
+
   List<HomeLocation> homesForItem(Item item) =>
       homeLocations.where((h) => h.itemID == item.exportID).toList();
 

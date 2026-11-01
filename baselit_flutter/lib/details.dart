@@ -1,7 +1,9 @@
 // Detail screens for houses, locations, containers, and items.
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 
+import 'bubble_grid.dart';
 import 'forms.dart';
 import 'models.dart';
 import 'store.dart';
@@ -56,6 +58,88 @@ List<Widget> _contents(
       message: 'Nothing is stored here yet.',
     ),
 ];
+
+/// The "View All Items & Containers" row that opens a full-screen bubble grid.
+Widget _viewAllRow(
+  BuildContext context,
+  String title,
+  List<Item> items,
+  List<StorageContainer> containers,
+) {
+  if (items.isEmpty && containers.isEmpty) return const SizedBox.shrink();
+  return Padding(
+    padding: const EdgeInsets.only(top: 22),
+    child: GroupCard(
+      separatorIndent: 58,
+      children: [
+        ListRow(
+          title: 'View All Items & Containers',
+          leading: const RowIcon(CupertinoIcons.circle_grid_hex),
+          trailing: const SizedBox(),
+          onTap: () => Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(
+              fullscreenDialog: true,
+              builder: (_) => BubbleGridScreen(
+                title: title,
+                items: items,
+                containers: containers,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Full-screen honeycomb of everything inside a house, location, or container.
+class BubbleGridScreen extends StatelessWidget {
+  const BubbleGridScreen({
+    super.key,
+    required this.title,
+    required this.items,
+    required this.containers,
+  });
+
+  final String title;
+  final List<Item> items;
+  final List<StorageContainer> containers;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    // Leave out anything deleted while this screen is open
+    final liveItems = items.where(store.items.contains);
+    final liveContainers = containers.where(store.containers.contains);
+    return BaselitPage(
+      title: title,
+      largeTitle: false,
+      background: context.colors.plainBackground,
+      showBack: false,
+      leading: [
+        RoundButton(
+          icon: CupertinoIcons.xmark,
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+      actions: const [SizedBox(width: Sizes.roundButton)],
+      fill: SafeArea(
+        top: false,
+        child: BubbleGrid(
+          store: store,
+          entries: bubbleEntries(
+            store,
+            items: liveItems,
+            containers: liveContainers,
+            openItem: (item) => push(context, ItemDetailScreen(item: item)),
+            openContainer: (c) =>
+                push(context, ContainerDetailScreen(container: c)),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 Widget _notes(BuildContext context, String? notes) =>
     (notes == null || notes.isEmpty)
@@ -118,6 +202,12 @@ class HouseDetailScreen extends StatelessWidget {
         if (house.address?.isNotEmpty ?? false)
           GroupCard(children: [ValueRow('Address', house.address!)]),
         _notes(context, house.notes),
+        _viewAllRow(
+          context,
+          house.name,
+          store.itemsWithinHouse(house),
+          store.containersWithinHouse(house),
+        ),
         ..._contents(
           context,
           store,
@@ -145,6 +235,12 @@ class LocationDetailScreen extends StatelessWidget {
       ),
       children: [
         _notes(context, location.notes),
+        _viewAllRow(
+          context,
+          location.name,
+          store.itemsWithinLocation(location),
+          store.containersWithinLocation(location),
+        ),
         ..._contents(
           context,
           store,
@@ -188,6 +284,12 @@ class ContainerDetailScreen extends StatelessWidget {
           ],
         ),
         _notes(context, container.notes),
+        _viewAllRow(
+          context,
+          container.name,
+          store.itemsWithinContainer(container),
+          store.containersWithinContainer(container),
+        ),
         ..._contents(
           context,
           store,
