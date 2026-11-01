@@ -9,7 +9,24 @@ The look follows the iOS app: grouped gray background, white cards with 26pt
 corners, gray icon tiles, Cupertino icons, a black and white accent, and a
 floating pill tab bar. Text uses Inter, the closest free match to SF Pro.
 
-## Run
+## Install on Linux (Omarchy, Arch, and others)
+
+Every push to `main` that changes this folder builds a Linux version on GitHub
+and publishes it as the
+[linux-latest pre-release](https://github.com/jos-jason/Baselit/releases/tag/linux-latest).
+
+```bash
+curl -LO https://github.com/jos-jason/Baselit/releases/download/linux-latest/baselit-linux-x64.tar.gz
+tar -xzf baselit-linux-x64.tar.gz
+cd baselit-linux-x64 && ./install.sh
+```
+
+Baselit then shows up in the app launcher, or run `baselit`. It needs GTK 3,
+which Omarchy already has (`sudo pacman -S gtk3` otherwise). Remove it with
+`./install.sh --uninstall`; your data in `~/.local/share/com.babymechanical.baselit`
+is kept.
+
+## Run from source
 
 ```bash
 flutter run -d linux      # on a Linux machine
