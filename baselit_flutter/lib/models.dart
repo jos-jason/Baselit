@@ -34,9 +34,9 @@ class House {
     this.notes,
     DateTime? createdAt,
     DateTime? updatedAt,
-  })  : exportID = exportID ?? newID(),
-        createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : exportID = exportID ?? newID(),
+       createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   final String exportID;
   String name;
@@ -46,22 +46,22 @@ class House {
   DateTime updatedAt;
 
   factory House.fromJson(Map<String, dynamic> json) => House(
-        exportID: json['exportID'],
-        name: json['name'],
-        address: json['address'],
-        notes: json['notes'],
-        createdAt: _date(json['createdAt']),
-        updatedAt: _date(json['updatedAt']),
-      );
+    exportID: json['exportID'],
+    name: json['name'],
+    address: json['address'],
+    notes: json['notes'],
+    createdAt: _date(json['createdAt']),
+    updatedAt: _date(json['updatedAt']),
+  );
 
   Map<String, Object?> toJson() => _compact({
-        'exportID': exportID,
-        'name': name,
-        'address': address,
-        'notes': notes,
-        'createdAt': isoDate(createdAt),
-        'updatedAt': isoDate(updatedAt),
-      });
+    'exportID': exportID,
+    'name': name,
+    'address': address,
+    'notes': notes,
+    'createdAt': isoDate(createdAt),
+    'updatedAt': isoDate(updatedAt),
+  });
 }
 
 class Location {
@@ -73,9 +73,9 @@ class Location {
     this.parentLocationID,
     DateTime? createdAt,
     DateTime? updatedAt,
-  })  : exportID = exportID ?? newID(),
-        createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : exportID = exportID ?? newID(),
+       createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   final String exportID;
   String name;
@@ -86,24 +86,24 @@ class Location {
   DateTime updatedAt;
 
   factory Location.fromJson(Map<String, dynamic> json) => Location(
-        exportID: json['exportID'],
-        name: json['name'],
-        notes: json['notes'],
-        houseID: json['houseExportID'],
-        parentLocationID: json['parentLocationExportID'],
-        createdAt: _date(json['createdAt']),
-        updatedAt: _date(json['updatedAt']),
-      );
+    exportID: json['exportID'],
+    name: json['name'],
+    notes: json['notes'],
+    houseID: json['houseExportID'],
+    parentLocationID: json['parentLocationExportID'],
+    createdAt: _date(json['createdAt']),
+    updatedAt: _date(json['updatedAt']),
+  );
 
   Map<String, Object?> toJson() => _compact({
-        'exportID': exportID,
-        'name': name,
-        'notes': notes,
-        'createdAt': isoDate(createdAt),
-        'updatedAt': isoDate(updatedAt),
-        'houseExportID': houseID,
-        'parentLocationExportID': parentLocationID,
-      });
+    'exportID': exportID,
+    'name': name,
+    'notes': notes,
+    'createdAt': isoDate(createdAt),
+    'updatedAt': isoDate(updatedAt),
+    'houseExportID': houseID,
+    'parentLocationExportID': parentLocationID,
+  });
 }
 
 /// A box, bin, drawer, or anything else that holds items.
@@ -121,10 +121,10 @@ class StorageContainer {
     this.houseID,
     DateTime? createdAt,
     DateTime? updatedAt,
-  })  : exportID = exportID ?? newID(),
-        identifier = identifier ?? IdentifierGenerator.generate(),
-        createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : exportID = exportID ?? newID(),
+       identifier = identifier ?? IdentifierGenerator.generate(),
+       createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   final String exportID;
   String name;
@@ -154,18 +154,18 @@ class StorageContainer {
       );
 
   Map<String, Object?> toJson() => _compact({
-        'exportID': exportID,
-        'name': name,
-        'containerType': containerType,
-        'notes': notes,
-        'identifier': identifier,
-        'createdAt': isoDate(createdAt),
-        'updatedAt': isoDate(updatedAt),
-        'lastLabelPrintedAt': _isoOrNull(lastLabelPrintedAt),
-        'parentContainerExportID': parentContainerID,
-        'locationExportID': locationID,
-        'houseExportID': houseID,
-      });
+    'exportID': exportID,
+    'name': name,
+    'containerType': containerType,
+    'notes': notes,
+    'identifier': identifier,
+    'createdAt': isoDate(createdAt),
+    'updatedAt': isoDate(updatedAt),
+    'lastLabelPrintedAt': _isoOrNull(lastLabelPrintedAt),
+    'parentContainerExportID': parentContainerID,
+    'locationExportID': locationID,
+    'houseExportID': houseID,
+  });
 }
 
 class Item {
@@ -185,10 +185,10 @@ class Item {
     this.houseID,
     DateTime? createdAt,
     DateTime? updatedAt,
-  })  : exportID = exportID ?? newID(),
-        identifier = identifier ?? IdentifierGenerator.generate(),
-        createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : exportID = exportID ?? newID(),
+       identifier = identifier ?? IdentifierGenerator.generate(),
+       createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   final String exportID;
   String name;
@@ -208,9 +208,13 @@ class Item {
 
   /// Reads an item, folding any legacy category, colors, and tags into notes
   /// the same way the iOS app does on import.
-  factory Item.fromJson(Map<String, dynamic> json, Map<String, String> tagNames) {
+  factory Item.fromJson(
+    Map<String, dynamic> json,
+    Map<String, String> tagNames,
+  ) {
     final category = json['category'] as String?;
-    final colors = (json['colors'] as List?)?.cast<String>() ??
+    final colors =
+        (json['colors'] as List?)?.cast<String>() ??
         [if (json['color'] != null) json['color'] as String];
     final tags = ((json['tagExportIDs'] as List?) ?? [])
         .map((id) => tagNames[id])
@@ -240,28 +244,30 @@ class Item {
   }
 
   Map<String, Object?> toJson() => _compact({
-        'exportID': exportID,
-        'name': name,
-        'itemDescription': itemDescription,
-        'quantity': quantity,
-        'brand': brand,
-        'model': model,
-        'condition': condition,
-        'notes': notes,
-        'identifier': identifier,
-        'createdAt': isoDate(createdAt),
-        'updatedAt': isoDate(updatedAt),
-        'lastLabelPrintedAt': _isoOrNull(lastLabelPrintedAt),
-        'containerExportID': containerID,
-        'locationExportID': locationID,
-        'houseExportID': houseID,
-        'tagExportIDs': <String>[],
-      });
+    'exportID': exportID,
+    'name': name,
+    'itemDescription': itemDescription,
+    'quantity': quantity,
+    'brand': brand,
+    'model': model,
+    'condition': condition,
+    'notes': notes,
+    'identifier': identifier,
+    'createdAt': isoDate(createdAt),
+    'updatedAt': isoDate(updatedAt),
+    'lastLabelPrintedAt': _isoOrNull(lastLabelPrintedAt),
+    'containerExportID': containerID,
+    'locationExportID': locationID,
+    'houseExportID': houseID,
+    'tagExportIDs': <String>[],
+  });
 }
 
 String _capitalized(String word) => word
     .split(' ')
-    .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
+    .map(
+      (w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase(),
+    )
     .join(' ');
 
 /// Appends keywords to notes as a comma-separated line, skipping any word the
@@ -271,7 +277,8 @@ String? notesAddingKeywords(String? notes, List<String> keywords) {
   final words = <String>[];
   for (final keyword in keywords) {
     if (keyword.isEmpty) continue;
-    final present = existing.toLowerCase().contains(keyword.toLowerCase()) ||
+    final present =
+        existing.toLowerCase().contains(keyword.toLowerCase()) ||
         words.any((w) => w.toLowerCase() == keyword.toLowerCase());
     if (!present) words.add(keyword);
   }
@@ -292,9 +299,9 @@ class HomeLocation {
     this.ownerContainerID,
     DateTime? createdAt,
     DateTime? updatedAt,
-  })  : exportID = exportID ?? newID(),
-        createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : exportID = exportID ?? newID(),
+       createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   final String exportID;
   String houseID;
@@ -306,26 +313,26 @@ class HomeLocation {
   DateTime updatedAt;
 
   factory HomeLocation.fromJson(Map<String, dynamic> json) => HomeLocation(
-        exportID: json['exportID'],
-        houseID: json['houseExportID'],
-        locationID: json['locationExportID'],
-        containerID: json['containerExportID'],
-        itemID: json['itemExportID'],
-        ownerContainerID: json['ownerContainerExportID'],
-        createdAt: _date(json['createdAt']),
-        updatedAt: _date(json['updatedAt']),
-      );
+    exportID: json['exportID'],
+    houseID: json['houseExportID'],
+    locationID: json['locationExportID'],
+    containerID: json['containerExportID'],
+    itemID: json['itemExportID'],
+    ownerContainerID: json['ownerContainerExportID'],
+    createdAt: _date(json['createdAt']),
+    updatedAt: _date(json['updatedAt']),
+  );
 
   Map<String, Object?> toJson() => _compact({
-        'exportID': exportID,
-        'createdAt': isoDate(createdAt),
-        'updatedAt': isoDate(updatedAt),
-        'houseExportID': houseID,
-        'locationExportID': locationID,
-        'containerExportID': containerID,
-        'itemExportID': itemID,
-        'ownerContainerExportID': ownerContainerID,
-      });
+    'exportID': exportID,
+    'createdAt': isoDate(createdAt),
+    'updatedAt': isoDate(updatedAt),
+    'houseExportID': houseID,
+    'locationExportID': locationID,
+    'containerExportID': containerID,
+    'itemExportID': itemID,
+    'ownerContainerExportID': ownerContainerID,
+  });
 }
 
 /// A photo record. The image itself lives in the photos folder as `filename`.
@@ -340,8 +347,8 @@ class Photo {
     this.containerID,
     this.itemID,
     DateTime? createdAt,
-  })  : exportID = exportID ?? newID(),
-        createdAt = createdAt ?? DateTime.now();
+  }) : exportID = exportID ?? newID(),
+       createdAt = createdAt ?? DateTime.now();
 
   final String exportID;
   final String filename;
@@ -354,28 +361,28 @@ class Photo {
   final DateTime createdAt;
 
   factory Photo.fromJson(Map<String, dynamic> json) => Photo(
-        exportID: json['exportID'],
-        filename: json['filename'],
-        caption: json['caption'],
-        sortOrder: json['sortOrder'] ?? 0,
-        houseID: json['houseExportID'],
-        locationID: json['locationExportID'],
-        containerID: json['containerExportID'],
-        itemID: json['itemExportID'],
-        createdAt: _date(json['createdAt']),
-      );
+    exportID: json['exportID'],
+    filename: json['filename'],
+    caption: json['caption'],
+    sortOrder: json['sortOrder'] ?? 0,
+    houseID: json['houseExportID'],
+    locationID: json['locationExportID'],
+    containerID: json['containerExportID'],
+    itemID: json['itemExportID'],
+    createdAt: _date(json['createdAt']),
+  );
 
   Map<String, Object?> toJson() => _compact({
-        'exportID': exportID,
-        'filename': filename,
-        'caption': caption,
-        'createdAt': isoDate(createdAt),
-        'sortOrder': sortOrder,
-        'houseExportID': houseID,
-        'locationExportID': locationID,
-        'containerExportID': containerID,
-        'itemExportID': itemID,
-      });
+    'exportID': exportID,
+    'filename': filename,
+    'caption': caption,
+    'createdAt': isoDate(createdAt),
+    'sortOrder': sortOrder,
+    'houseExportID': houseID,
+    'locationExportID': locationID,
+    'containerExportID': containerID,
+    'itemExportID': itemID,
+  });
 }
 
 /// Memorable two-word identifiers (e.g. "Calm River"), same word lists as iOS.
@@ -383,29 +390,204 @@ class IdentifierGenerator {
   static final _random = Random();
 
   static const adjectives = [
-    'Amber', 'Bold', 'Bright', 'Calm', 'Clear', 'Coral', 'Crisp', 'Dusk', 'Fern', 'Frost',
-    'Gold', 'Grand', 'Green', 'Iron', 'Jade', 'Keen', 'Lush', 'Maple', 'Misty', 'Noble',
-    'Oak', 'Pearl', 'Pine', 'Quiet', 'Rapid', 'Reed', 'Ruby', 'Sage', 'Salt', 'Silver',
-    'Slate', 'Snow', 'Solar', 'Stone', 'Storm', 'Swift', 'Teal', 'Timber', 'Warm', 'Wild',
-    'Birch', 'Cloud', 'Copper', 'Dawn', 'Ember', 'Flint', 'Glen', 'Hazel', 'Ivy', 'Lake',
-    'Lunar', 'Moss', 'North', 'Olive', 'Onyx', 'Plum', 'Rain', 'Rust', 'Sandy', 'Silk',
-    'Smoky', 'Steep', 'Sunlit', 'Thistle', 'Velvet', 'Violet', 'Willow', 'Aspen', 'Basalt', 'Blaze',
-    'Brisk', 'Cedar', 'Clay', 'Cobalt', 'Crest', 'Drift', 'Dusky', 'Forge', 'Gale', 'Harbor',
-    'Linen', 'Mallow', 'Mint', 'Opal', 'Polar', 'Pyre', 'Quartz', 'Raven', 'Ridge', 'Rowan',
-    'Scarlet', 'Spruce', 'Tide', 'Umber', 'Vista',
+    'Amber',
+    'Bold',
+    'Bright',
+    'Calm',
+    'Clear',
+    'Coral',
+    'Crisp',
+    'Dusk',
+    'Fern',
+    'Frost',
+    'Gold',
+    'Grand',
+    'Green',
+    'Iron',
+    'Jade',
+    'Keen',
+    'Lush',
+    'Maple',
+    'Misty',
+    'Noble',
+    'Oak',
+    'Pearl',
+    'Pine',
+    'Quiet',
+    'Rapid',
+    'Reed',
+    'Ruby',
+    'Sage',
+    'Salt',
+    'Silver',
+    'Slate',
+    'Snow',
+    'Solar',
+    'Stone',
+    'Storm',
+    'Swift',
+    'Teal',
+    'Timber',
+    'Warm',
+    'Wild',
+    'Birch',
+    'Cloud',
+    'Copper',
+    'Dawn',
+    'Ember',
+    'Flint',
+    'Glen',
+    'Hazel',
+    'Ivy',
+    'Lake',
+    'Lunar',
+    'Moss',
+    'North',
+    'Olive',
+    'Onyx',
+    'Plum',
+    'Rain',
+    'Rust',
+    'Sandy',
+    'Silk',
+    'Smoky',
+    'Steep',
+    'Sunlit',
+    'Thistle',
+    'Velvet',
+    'Violet',
+    'Willow',
+    'Aspen',
+    'Basalt',
+    'Blaze',
+    'Brisk',
+    'Cedar',
+    'Clay',
+    'Cobalt',
+    'Crest',
+    'Drift',
+    'Dusky',
+    'Forge',
+    'Gale',
+    'Harbor',
+    'Linen',
+    'Mallow',
+    'Mint',
+    'Opal',
+    'Polar',
+    'Pyre',
+    'Quartz',
+    'Raven',
+    'Ridge',
+    'Rowan',
+    'Scarlet',
+    'Spruce',
+    'Tide',
+    'Umber',
+    'Vista',
   ];
 
   static const nouns = [
-    'Arrow', 'Basin', 'Bear', 'Brook', 'Canyon', 'Cliff', 'Cove', 'Crane', 'Creek', 'Crow',
-    'Deer', 'Dove', 'Dune', 'Eagle', 'Elk', 'Falcon', 'Field', 'Finch', 'Flare', 'Fox',
-    'Grove', 'Gull', 'Hawk', 'Haven', 'Heron', 'Hill', 'Hollow', 'Inlet', 'Lark', 'Ledge',
-    'Lodge', 'Marsh', 'Mesa', 'Moth', 'Nest', 'Otter', 'Owl', 'Pass', 'Path', 'Peak',
-    'Pike', 'Pond', 'Quail', 'Reef', 'Ridge', 'River', 'Robin', 'Shore', 'Spark', 'Sprout',
-    'Stone', 'Summit', 'Swallow', 'Thicket', 'Trail', 'Vale', 'Wren', 'Arch', 'Badger', 'Bluff',
-    'Briar', 'Bridge', 'Burrow', 'Cape', 'Cavern', 'Cinder', 'Dale', 'Den', 'Drift', 'Fern',
-    'Fjord', 'Forge', 'Glade', 'Gorge', 'Heath', 'Hound', 'Isle', 'Knoll', 'Lynx', 'Meadow',
-    'Mink', 'Moose', 'Notch', 'Osprey', 'Pebble', 'Perch', 'Prairie', 'Quarry', 'Raven', 'Shoal',
-    'Slope', 'Spire', 'Stag', 'Terrace', 'Timber', 'Tower', 'Tundra', 'Viper', 'Wharf', 'Wolf',
+    'Arrow',
+    'Basin',
+    'Bear',
+    'Brook',
+    'Canyon',
+    'Cliff',
+    'Cove',
+    'Crane',
+    'Creek',
+    'Crow',
+    'Deer',
+    'Dove',
+    'Dune',
+    'Eagle',
+    'Elk',
+    'Falcon',
+    'Field',
+    'Finch',
+    'Flare',
+    'Fox',
+    'Grove',
+    'Gull',
+    'Hawk',
+    'Haven',
+    'Heron',
+    'Hill',
+    'Hollow',
+    'Inlet',
+    'Lark',
+    'Ledge',
+    'Lodge',
+    'Marsh',
+    'Mesa',
+    'Moth',
+    'Nest',
+    'Otter',
+    'Owl',
+    'Pass',
+    'Path',
+    'Peak',
+    'Pike',
+    'Pond',
+    'Quail',
+    'Reef',
+    'Ridge',
+    'River',
+    'Robin',
+    'Shore',
+    'Spark',
+    'Sprout',
+    'Stone',
+    'Summit',
+    'Swallow',
+    'Thicket',
+    'Trail',
+    'Vale',
+    'Wren',
+    'Arch',
+    'Badger',
+    'Bluff',
+    'Briar',
+    'Bridge',
+    'Burrow',
+    'Cape',
+    'Cavern',
+    'Cinder',
+    'Dale',
+    'Den',
+    'Drift',
+    'Fern',
+    'Fjord',
+    'Forge',
+    'Glade',
+    'Gorge',
+    'Heath',
+    'Hound',
+    'Isle',
+    'Knoll',
+    'Lynx',
+    'Meadow',
+    'Mink',
+    'Moose',
+    'Notch',
+    'Osprey',
+    'Pebble',
+    'Perch',
+    'Prairie',
+    'Quarry',
+    'Raven',
+    'Shoal',
+    'Slope',
+    'Spire',
+    'Stag',
+    'Terrace',
+    'Timber',
+    'Tower',
+    'Tundra',
+    'Viper',
+    'Wharf',
+    'Wolf',
   ];
 
   static String generate() =>

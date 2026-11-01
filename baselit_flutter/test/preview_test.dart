@@ -42,6 +42,8 @@ InventoryStore _sampleStore() {
       Item(name: 'Batteries', quantity: 12, containerID: drawer.exportID),
       Item(name: 'Laptop Charger', locationID: office.exportID),
       Item(name: 'Camping Lantern'),
+      for (var i = 1; i <= 20; i++)
+        Item(name: 'Box $i', createdAt: DateTime(2026, 1, i), locationID: garage.exportID),
     ]
     ..homeLocations = [HomeLocation(houseID: lake.exportID, locationID: garage.exportID, itemID: drill.exportID)];
   return store;
@@ -72,6 +74,9 @@ void main() {
       }
 
       await snap('1_search');
+      await tester.enterText(find.byType(TextField), 'tool');
+      await snap('1b_search_results');
+      await tester.enterText(find.byType(TextField), '');
       await tester.tap(find.text('Places'));
       await snap('2_places');
       await tester.tap(find.text('Lake House'));

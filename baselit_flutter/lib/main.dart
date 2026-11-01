@@ -18,15 +18,15 @@ class BaselitApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => StoreScope(
-        store: store,
-        child: MaterialApp(
-          title: 'Baselit',
-          debugShowCheckedModeBanner: false,
-          theme: buildTheme(Brightness.light, fontFamily: fontFamily),
-          darkTheme: buildTheme(Brightness.dark, fontFamily: fontFamily),
-          home: const HomeShell(),
-        ),
-      );
+    store: store,
+    child: MaterialApp(
+      title: 'Baselit',
+      debugShowCheckedModeBanner: false,
+      theme: buildTheme(Brightness.light, fontFamily: fontFamily),
+      darkTheme: buildTheme(Brightness.dark, fontFamily: fontFamily),
+      home: const HomeShell(),
+    ),
+  );
 }
 
 class _TabInfo {
@@ -39,9 +39,24 @@ class _TabInfo {
 
 const _tabs = [
   _TabInfo('Search', CupertinoIcons.search, CupertinoIcons.search, SearchTab()),
-  _TabInfo('Places', CupertinoIcons.house, CupertinoIcons.house_fill, PlacesTab()),
-  _TabInfo('Containers', CupertinoIcons.archivebox, CupertinoIcons.archivebox_fill, ContainersTab()),
-  _TabInfo('Items', CupertinoIcons.cube_box, CupertinoIcons.cube_box_fill, ItemsTab()),
+  _TabInfo(
+    'Places',
+    CupertinoIcons.house,
+    CupertinoIcons.house_fill,
+    PlacesTab(),
+  ),
+  _TabInfo(
+    'Containers',
+    CupertinoIcons.archivebox,
+    CupertinoIcons.archivebox_fill,
+    ContainersTab(),
+  ),
+  _TabInfo(
+    'Items',
+    CupertinoIcons.cube_box,
+    CupertinoIcons.cube_box_fill,
+    ItemsTab(),
+  ),
 ];
 
 /// Four tabs, each with its own navigation stack, under a floating pill tab bar.
@@ -54,7 +69,10 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _selected = 0;
-  final _navigators = List.generate(_tabs.length, (_) => GlobalKey<NavigatorState>());
+  final _navigators = List.generate(
+    _tabs.length,
+    (_) => GlobalKey<NavigatorState>(),
+  );
 
   void _select(int index) {
     if (index == _selected) {
@@ -84,7 +102,8 @@ class _HomeShellState extends State<HomeShell> {
                   for (var i = 0; i < _tabs.length; i++)
                     Navigator(
                       key: _navigators[i],
-                      onGenerateRoute: (_) => MaterialPageRoute(builder: (_) => _tabs[i].root),
+                      onGenerateRoute: (_) =>
+                          MaterialPageRoute(builder: (_) => _tabs[i].root),
                     ),
                 ],
               ),
@@ -94,7 +113,9 @@ class _HomeShellState extends State<HomeShell> {
               bottom: 0,
               child: SafeArea(
                 top: false,
-                child: Center(child: FloatingTabBar(selected: _selected, onSelect: _select)),
+                child: Center(
+                  child: FloatingTabBar(selected: _selected, onSelect: _select),
+                ),
               ),
             ),
           ],
@@ -106,7 +127,11 @@ class _HomeShellState extends State<HomeShell> {
 
 /// The rounded floating tab bar from iOS 26, with a soft pill behind the selected tab.
 class FloatingTabBar extends StatelessWidget {
-  const FloatingTabBar({super.key, required this.selected, required this.onSelect});
+  const FloatingTabBar({
+    super.key,
+    required this.selected,
+    required this.onSelect,
+  });
   final int selected;
   final ValueChanged<int> onSelect;
 
@@ -118,11 +143,18 @@ class FloatingTabBar extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: colors.card.withValues(alpha: 0.96),
+        color: colors.glass,
         borderRadius: BorderRadius.circular(Radii.tabBar),
-        border: Border.all(color: colors.separator.withValues(alpha: 0.25), width: 0.5),
+        border: Border.all(
+          color: colors.separator.withValues(alpha: 0.25),
+          width: 0.5,
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 8)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       child: Row(
@@ -137,20 +169,27 @@ class FloatingTabBar extends StatelessWidget {
                   curve: Curves.easeOut,
                   height: 56,
                   decoration: BoxDecoration(
-                    color: i == selected ? colors.tabHighlight : Colors.transparent,
+                    color: i == selected
+                        ? colors.tabHighlight
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(Radii.tabBar - 4),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(_tabs[i].selectedIcon,
-                          size: 24, color: colors.label),
+                      Icon(
+                        _tabs[i].selectedIcon,
+                        size: 24,
+                        color: colors.label,
+                      ),
                       const SizedBox(height: 2),
                       Text(
                         _tabs[i].label,
                         style: TextStyle(
                           fontSize: 10.5,
-                          fontWeight: i == selected ? FontWeight.w700 : FontWeight.w500,
+                          fontWeight: i == selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
                           color: colors.label,
                         ),
                       ),

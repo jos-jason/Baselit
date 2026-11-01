@@ -42,7 +42,8 @@ class InventoryStore extends ChangeNotifier {
     List<Map<String, dynamic>> list(String key) =>
         ((json[key] as List?) ?? []).cast<Map<String, dynamic>>();
     final tagNames = {
-      for (final tag in list('tags')) tag['exportID'] as String: tag['name'] as String,
+      for (final tag in list('tags'))
+        tag['exportID'] as String: tag['name'] as String,
     };
     houses = list('houses').map(House.fromJson).toList();
     locations = list('locations').map(Location.fromJson).toList();
@@ -53,17 +54,17 @@ class InventoryStore extends ChangeNotifier {
   }
 
   Map<String, Object?> _manifest() => {
-        'version': 2,
-        'exportDate': isoDate(DateTime.now()),
-        'includesPhotos': true,
-        'houses': houses.map((h) => h.toJson()).toList(),
-        'locations': locations.map((l) => l.toJson()).toList(),
-        'containers': containers.map((c) => c.toJson()).toList(),
-        'items': items.map((i) => i.toJson()).toList(),
-        'tags': <Object>[],
-        'photos': photos.map((p) => p.toJson()).toList(),
-        'homeLocations': homeLocations.map((h) => h.toJson()).toList(),
-      };
+    'version': 2,
+    'exportDate': isoDate(DateTime.now()),
+    'includesPhotos': true,
+    'houses': houses.map((h) => h.toJson()).toList(),
+    'locations': locations.map((l) => l.toJson()).toList(),
+    'containers': containers.map((c) => c.toJson()).toList(),
+    'items': items.map((i) => i.toJson()).toList(),
+    'tags': <Object>[],
+    'photos': photos.map((p) => p.toJson()).toList(),
+    'homeLocations': homeLocations.map((h) => h.toJson()).toList(),
+  };
 
   Future<void> _save() async {
     final encoder = const JsonEncoder.withIndent('  ');
@@ -82,7 +83,8 @@ class InventoryStore extends ChangeNotifier {
 
   House? house(String? id) => _find(houses, id, (h) => h.exportID);
   Location? location(String? id) => _find(locations, id, (l) => l.exportID);
-  StorageContainer? container(String? id) => _find(containers, id, (c) => c.exportID);
+  StorageContainer? container(String? id) =>
+      _find(containers, id, (c) => c.exportID);
   Item? item(String? id) => _find(items, id, (i) => i.exportID);
 
   static T? _find<T>(List<T> list, String? id, String Function(T) key) {
@@ -181,45 +183,72 @@ class InventoryStore extends ChangeNotifier {
 
   // MARK: - Children
 
-  List<T> _sorted<T>(Iterable<T> list, String Function(T) name) =>
-      list.toList()..sort((a, b) => name(a).toLowerCase().compareTo(name(b).toLowerCase()));
+  List<T> _sorted<T>(Iterable<T> list, String Function(T) name) => list.toList()
+    ..sort((a, b) => name(a).toLowerCase().compareTo(name(b).toLowerCase()));
 
   List<House> get sortedHouses => _sorted(houses, (h) => h.name);
 
   List<Location> topLocations(House house) => _sorted(
-      locations.where((l) => l.houseID == house.exportID && l.parentLocationID == null),
-      (l) => l.name);
+    locations.where(
+      (l) => l.houseID == house.exportID && l.parentLocationID == null,
+    ),
+    (l) => l.name,
+  );
 
-  List<Location> subLocations(Location location) =>
-      _sorted(locations.where((l) => l.parentLocationID == location.exportID), (l) => l.name);
+  List<Location> subLocations(Location location) => _sorted(
+    locations.where((l) => l.parentLocationID == location.exportID),
+    (l) => l.name,
+  );
 
   List<StorageContainer> containersInHouse(House house) => _sorted(
-      containers.where((c) =>
-          c.houseID == house.exportID && c.locationID == null && c.parentContainerID == null),
-      (c) => c.name);
+    containers.where(
+      (c) =>
+          c.houseID == house.exportID &&
+          c.locationID == null &&
+          c.parentContainerID == null,
+    ),
+    (c) => c.name,
+  );
 
   List<StorageContainer> containersInLocation(Location location) => _sorted(
-      containers.where((c) => c.locationID == location.exportID && c.parentContainerID == null),
-      (c) => c.name);
+    containers.where(
+      (c) => c.locationID == location.exportID && c.parentContainerID == null,
+    ),
+    (c) => c.name,
+  );
 
   List<StorageContainer> subContainers(StorageContainer container) => _sorted(
-      containers.where((c) => c.parentContainerID == container.exportID), (c) => c.name);
+    containers.where((c) => c.parentContainerID == container.exportID),
+    (c) => c.name,
+  );
 
   List<Item> itemsInHouse(House house) => _sorted(
-      items.where((i) =>
-          i.houseID == house.exportID && i.locationID == null && i.containerID == null),
-      (i) => i.name);
+    items.where(
+      (i) =>
+          i.houseID == house.exportID &&
+          i.locationID == null &&
+          i.containerID == null,
+    ),
+    (i) => i.name,
+  );
 
   List<Item> itemsInLocation(Location location) => _sorted(
-      items.where((i) => i.locationID == location.exportID && i.containerID == null),
-      (i) => i.name);
+    items.where(
+      (i) => i.locationID == location.exportID && i.containerID == null,
+    ),
+    (i) => i.name,
+  );
 
-  List<Item> itemsInContainer(StorageContainer container) =>
-      _sorted(items.where((i) => i.containerID == container.exportID), (i) => i.name);
+  List<Item> itemsInContainer(StorageContainer container) => _sorted(
+    items.where((i) => i.containerID == container.exportID),
+    (i) => i.name,
+  );
 
-  List<Item> get unassignedItems => _sorted(items.where((i) => itemHouse(i) == null), (i) => i.name);
+  List<Item> get unassignedItems =>
+      _sorted(items.where((i) => itemHouse(i) == null), (i) => i.name);
 
-  List<StorageContainer> get sortedContainers => _sorted(containers, (c) => c.name);
+  List<StorageContainer> get sortedContainers =>
+      _sorted(containers, (c) => c.name);
 
   List<Item> get sortedItems => _sorted(items, (i) => i.name);
 
@@ -227,32 +256,43 @@ class InventoryStore extends ChangeNotifier {
       homeLocations.where((h) => h.itemID == item.exportID).toList();
 
   List<HomeLocation> homesForContainer(StorageContainer container) =>
-      homeLocations.where((h) => h.ownerContainerID == container.exportID).toList();
+      homeLocations
+          .where((h) => h.ownerContainerID == container.exportID)
+          .toList();
 
   // MARK: - Photos
 
-  List<Photo> photosFor({String? itemID, String? containerID}) => photos
-      .where((p) =>
-          (itemID != null && p.itemID == itemID) ||
-          (containerID != null && p.containerID == containerID))
-      .toList()
-    ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+  List<Photo> photosFor({String? itemID, String? containerID}) =>
+      photos
+          .where(
+            (p) =>
+                (itemID != null && p.itemID == itemID) ||
+                (containerID != null && p.containerID == containerID),
+          )
+          .toList()
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
 
   File photoFile(Photo photo) => File('${_photosDir.path}/${photo.filename}');
 
-  Future<void> addPhoto(File source, {String? itemID, String? containerID}) async {
+  Future<void> addPhoto(
+    File source, {
+    String? itemID,
+    String? containerID,
+  }) async {
     final id = newID();
     final extension = source.path.split('.').last.toLowerCase();
     final filename = 'photo_$id.${extension.length <= 4 ? extension : 'jpg'}';
     await source.copy('${_photosDir.path}/$filename');
     final existing = photosFor(itemID: itemID, containerID: containerID);
-    photos.add(Photo(
-      exportID: id,
-      filename: filename,
-      sortOrder: existing.isEmpty ? 0 : existing.last.sortOrder + 1,
-      itemID: itemID,
-      containerID: containerID,
-    ));
+    photos.add(
+      Photo(
+        exportID: id,
+        filename: filename,
+        sortOrder: existing.isEmpty ? 0 : existing.last.sortOrder + 1,
+        itemID: itemID,
+        containerID: containerID,
+      ),
+    );
     await commit();
   }
 
@@ -261,10 +301,17 @@ class InventoryStore extends ChangeNotifier {
   List<Item> searchItems(String query, {String? houseID}) {
     final q = query.trim().toLowerCase();
     return sortedItems.where((item) {
-      final matches = q.isEmpty ||
-          [item.name, item.itemDescription, item.notes, item.brand, item.model]
-              .any((field) => field?.toLowerCase().contains(q) ?? false);
-      return matches && (houseID == null || itemHouse(item)?.exportID == houseID);
+      final matches =
+          q.isEmpty ||
+          [
+            item.name,
+            item.itemDescription,
+            item.notes,
+            item.brand,
+            item.model,
+          ].any((field) => field?.toLowerCase().contains(q) ?? false);
+      return matches &&
+          (houseID == null || itemHouse(item)?.exportID == houseID);
     }).toList();
   }
 
@@ -272,9 +319,13 @@ class InventoryStore extends ChangeNotifier {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return [];
     return sortedContainers.where((c) {
-      final matches = [c.name, c.containerType, c.notes]
-          .any((field) => field?.toLowerCase().contains(q) ?? false);
-      return matches && (houseID == null || containerHouse(c)?.exportID == houseID);
+      final matches = [
+        c.name,
+        c.containerType,
+        c.notes,
+      ].any((field) => field?.toLowerCase().contains(q) ?? false);
+      return matches &&
+          (houseID == null || containerHouse(c)?.exportID == houseID);
     }).toList();
   }
 
@@ -289,7 +340,8 @@ class InventoryStore extends ChangeNotifier {
   Future<void> deleteItem(Item item) async {
     items.remove(item);
     homeLocations.removeWhere((h) => h.itemID == item.exportID);
-    for (final photo in photos.where((p) => p.itemID == item.exportID).toList()) {
+    for (final photo
+        in photos.where((p) => p.itemID == item.exportID).toList()) {
       photos.remove(photo);
       final file = photoFile(photo);
       if (await file.exists()) await file.delete();
@@ -312,20 +364,25 @@ class InventoryStore extends ChangeNotifier {
     final house = itemHouse(item);
     if (house == null) return;
     final container = this.container(item.containerID);
-    final locationID = container != null ? containerLocation(container)?.exportID : item.locationID;
-    final existing = homesForItem(item).where((h) => h.houseID == house.exportID);
+    final locationID = container != null
+        ? containerLocation(container)?.exportID
+        : item.locationID;
+    final existing = homesForItem(item)
+        .where((h) => h.houseID == house.exportID);
     if (existing.isNotEmpty) {
       existing.first
         ..locationID = locationID
         ..containerID = container?.exportID
         ..updatedAt = DateTime.now();
     } else {
-      homeLocations.add(HomeLocation(
-        houseID: house.exportID,
-        locationID: locationID,
-        containerID: container?.exportID,
-        itemID: item.exportID,
-      ));
+      homeLocations.add(
+        HomeLocation(
+          houseID: house.exportID,
+          locationID: locationID,
+          containerID: container?.exportID,
+          itemID: item.exportID,
+        ),
+      );
     }
     await commit();
   }
@@ -334,11 +391,15 @@ class InventoryStore extends ChangeNotifier {
     final house = itemHouse(item);
     if (house == null) return false;
     final container = this.container(item.containerID);
-    final locationID = container != null ? containerLocation(container)?.exportID : item.locationID;
-    return homesForItem(item).any((h) =>
-        h.houseID == house.exportID &&
-        h.locationID == locationID &&
-        h.containerID == container?.exportID);
+    final locationID = container != null
+        ? containerLocation(container)?.exportID
+        : item.locationID;
+    return homesForItem(item).any(
+      (h) =>
+          h.houseID == house.exportID &&
+          h.locationID == locationID &&
+          h.containerID == container?.exportID,
+    );
   }
 
   // MARK: - Backups
@@ -346,11 +407,20 @@ class InventoryStore extends ChangeNotifier {
   /// Replaces everything with the contents of an iOS (or Flutter) backup zip.
   Future<String> importBackup(String zipPath) async {
     final archive = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());
-    final jsonEntry = archive.files.where((f) =>
-        f.isFile && f.name.split('/').last == 'baselit_backup.json' && !f.name.contains('__MACOSX'));
-    if (jsonEntry.isEmpty) throw const FormatException('No baselit_backup.json in this zip.');
+    final jsonEntry = archive.files.where(
+      (f) =>
+          f.isFile &&
+          f.name.split('/').last == 'baselit_backup.json' &&
+          !f.name.contains('__MACOSX'),
+    );
+    if (jsonEntry.isEmpty) {
+      throw const FormatException('No baselit_backup.json in this zip.');
+    }
     final entry = jsonEntry.first;
-    final prefix = entry.name.substring(0, entry.name.length - 'baselit_backup.json'.length);
+    final prefix = entry.name.substring(
+      0,
+      entry.name.length - 'baselit_backup.json'.length,
+    );
 
     _readManifest(jsonDecode(utf8.decode(entry.content as List<int>)));
 
@@ -361,7 +431,8 @@ class InventoryStore extends ChangeNotifier {
       if (!file.isFile || !file.name.startsWith('${prefix}photos/')) continue;
       final name = file.name.split('/').last;
       if (name.isEmpty || name.startsWith('.')) continue;
-      await File('${_photosDir.path}/$name').writeAsBytes(file.content as List<int>);
+      await File('${_photosDir.path}/$name')
+          .writeAsBytes(file.content as List<int>);
       photoCount++;
     }
     await commit();
@@ -372,13 +443,17 @@ class InventoryStore extends ChangeNotifier {
   /// Writes a backup zip the iOS app can import.
   Future<void> exportBackup(String zipPath) async {
     final archive = Archive();
-    final json = utf8.encode(const JsonEncoder.withIndent('  ').convert(_manifest()));
+    final json = utf8.encode(
+      const JsonEncoder.withIndent('  ').convert(_manifest()),
+    );
     archive.addFile(ArchiveFile('baselit_backup.json', json.length, json));
     for (final photo in photos) {
       final file = photoFile(photo);
       if (!await file.exists()) continue;
       final bytes = await file.readAsBytes();
-      archive.addFile(ArchiveFile('photos/${photo.filename}', bytes.length, bytes));
+      archive.addFile(
+        ArchiveFile('photos/${photo.filename}', bytes.length, bytes),
+      );
     }
     await File(zipPath).writeAsBytes(ZipEncoder().encode(archive));
   }
@@ -386,8 +461,11 @@ class InventoryStore extends ChangeNotifier {
 
 /// Makes the store available to every screen and rebuilds them when it changes.
 class StoreScope extends InheritedNotifier<InventoryStore> {
-  const StoreScope({super.key, required InventoryStore store, required super.child})
-      : super(notifier: store);
+  const StoreScope({
+    super.key,
+    required InventoryStore store,
+    required super.child,
+  }) : super(notifier: store);
 
   static InventoryStore of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<StoreScope>()!.notifier!;

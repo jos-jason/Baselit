@@ -11,19 +11,32 @@ import 'store.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-Future<String?> askForName(BuildContext context, String title, String hint) async {
+Future<String?> askForName(
+  BuildContext context,
+  String title,
+  String hint,
+) async {
   final controller = TextEditingController();
   final name = await showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
       title: Text(title, style: TextStyles.headline(context)),
       content: Container(
-        decoration: BoxDecoration(color: context.colors.fill, borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(
+          color: context.colors.fill,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: FieldRow(controller: controller, hint: hint, autofocus: true),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Add')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, controller.text.trim()),
+          child: const Text('Add'),
+        ),
       ],
     ),
   );
@@ -37,10 +50,16 @@ Future<bool> confirmDelete(BuildContext context, String name) async =>
         title: Text('Delete $name?', style: TextStyles.headline(context)),
         content: const Text('This will permanently delete this item.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text('Delete', style: TextStyle(color: context.colors.destructive)),
+            child: Text(
+              'Delete',
+              style: TextStyle(color: context.colors.destructive),
+            ),
           ),
         ],
       ),
@@ -59,8 +78,12 @@ class ItemFormScreen extends StatefulWidget {
 
 class _ItemFormScreenState extends State<ItemFormScreen> {
   late final _name = TextEditingController(text: widget.item?.name);
-  late final _description = TextEditingController(text: widget.item?.itemDescription);
-  late final _quantity = TextEditingController(text: '${widget.item?.quantity ?? 1}');
+  late final _description = TextEditingController(
+    text: widget.item?.itemDescription,
+  );
+  late final _quantity = TextEditingController(
+    text: '${widget.item?.quantity ?? 1}',
+  );
   late final _brand = TextEditingController(text: widget.item?.brand);
   late final _model = TextEditingController(text: widget.item?.model);
   late final _condition = TextEditingController(text: widget.item?.condition);
@@ -74,7 +97,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
     return '';
   }
 
-  String? _text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+  String? _text(TextEditingController c) =>
+      c.text.trim().isEmpty ? null : c.text.trim();
 
   Future<void> _save(InventoryStore store) async {
     final name = _name.text.trim();
@@ -96,10 +120,17 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   }
 
   Future<void> _addPhoto(InventoryStore store) async {
-    final file = await openFile(acceptedTypeGroups: [
-      const XTypeGroup(label: 'Images', extensions: ['jpg', 'jpeg', 'png', 'heic', 'webp']),
-    ]);
-    if (file != null) await store.addPhoto(File(file.path), itemID: widget.item!.exportID);
+    final file = await openFile(
+      acceptedTypeGroups: [
+        const XTypeGroup(
+          label: 'Images',
+          extensions: ['jpg', 'jpeg', 'png', 'heic', 'webp'],
+        ),
+      ],
+    );
+    if (file != null) {
+      await store.addPhoto(File(file.path), itemID: widget.item!.exportID);
+    }
   }
 
   @override
@@ -109,60 +140,103 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
     final places = <String, String>{
       '': 'Unassigned',
       for (final h in store.sortedHouses) 'h:${h.exportID}': h.name,
-      for (final l in store.locations) 'l:${l.exportID}': store.locationPath(l).join(' › '),
-      for (final c in store.containers) 'c:${c.exportID}': store.containerPath(c).join(' › '),
+      for (final l in store.locations)
+        'l:${l.exportID}': store.locationPath(l).join(' › '),
+      for (final c in store.containers)
+        'c:${c.exportID}': store.containerPath(c).join(' › '),
     };
     if (!places.containsKey(_place)) _place = '';
     final sortedPlaces = places.entries.toList()
-      ..sort((a, b) => a.key.isEmpty ? -1 : b.key.isEmpty ? 1 : a.value.compareTo(b.value));
+      ..sort(
+        (a, b) => a.key.isEmpty
+            ? -1
+            : b.key.isEmpty
+            ? 1
+            : a.value.compareTo(b.value),
+      );
 
     return BaselitPage(
       title: widget.item == null ? 'New Item' : 'Edit Item',
       largeTitle: false,
-      actions: [RoundButton(icon: CupertinoIcons.checkmark, label: 'Save', onPressed: () => _save(store))],
+      actions: [
+        RoundButton(
+          icon: CupertinoIcons.checkmark,
+          label: 'Save',
+          onPressed: () => _save(store),
+        ),
+      ],
       children: [
-        GroupCard(children: [FieldRow(controller: _name, hint: 'Name', autofocus: widget.item == null)]),
+        GroupCard(
+          children: [
+            FieldRow(
+              controller: _name,
+              hint: 'Name',
+              autofocus: widget.item == null,
+            ),
+          ],
+        ),
         const SectionHeader('Stored In'),
-        GroupCard(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _place,
-                isExpanded: true,
-                borderRadius: BorderRadius.circular(18),
-                dropdownColor: colors.card,
-                icon: Icon(CupertinoIcons.chevron_up_chevron_down, size: 16, color: colors.secondaryLabel),
-                style: TextStyles.body(context),
-                items: [
-                  for (final p in sortedPlaces)
-                    DropdownMenuItem(value: p.key, child: Text(p.value, overflow: TextOverflow.ellipsis)),
-                ],
-                onChanged: (value) => setState(() => _place = value ?? ''),
+        GroupCard(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _place,
+                  isExpanded: true,
+                  borderRadius: BorderRadius.circular(18),
+                  dropdownColor: colors.card,
+                  icon: Icon(
+                    CupertinoIcons.chevron_up_chevron_down,
+                    size: 16,
+                    color: colors.secondaryLabel,
+                  ),
+                  style: TextStyles.body(context),
+                  items: [
+                    for (final p in sortedPlaces)
+                      DropdownMenuItem(
+                        value: p.key,
+                        child: Text(p.value, overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() => _place = value ?? ''),
+                ),
               ),
             ),
-          ),
-        ]),
+          ],
+        ),
         const SectionHeader('Details'),
-        GroupCard(children: [
-          FieldRow(controller: _description, hint: 'Description'),
-          FieldRow(controller: _quantity, hint: 'Quantity', number: true),
-          FieldRow(controller: _brand, hint: 'Brand'),
-          FieldRow(controller: _model, hint: 'Model'),
-          FieldRow(controller: _condition, hint: 'Condition'),
-        ]),
+        GroupCard(
+          children: [
+            FieldRow(controller: _description, hint: 'Description'),
+            FieldRow(controller: _quantity, hint: 'Quantity', number: true),
+            FieldRow(controller: _brand, hint: 'Brand'),
+            FieldRow(controller: _model, hint: 'Model'),
+            FieldRow(controller: _condition, hint: 'Condition'),
+          ],
+        ),
         const SectionHeader('Notes'),
-        GroupCard(children: [FieldRow(controller: _notes, hint: 'Keywords and notes', multiline: true)]),
+        GroupCard(
+          children: [
+            FieldRow(
+              controller: _notes,
+              hint: 'Keywords and notes',
+              multiline: true,
+            ),
+          ],
+        ),
         if (widget.item != null) ...[
           const SizedBox(height: 22),
-          GroupCard(children: [
-            ListRow(
-              title: 'Add Photo',
-              leading: const RowIcon(CupertinoIcons.photo),
-              trailing: const SizedBox(),
-              onTap: () => _addPhoto(store),
-            ),
-          ]),
+          GroupCard(
+            children: [
+              ListRow(
+                title: 'Add Photo',
+                leading: const RowIcon(CupertinoIcons.photo),
+                trailing: const SizedBox(),
+                onTap: () => _addPhoto(store),
+              ),
+            ],
+          ),
         ],
       ],
     );
@@ -180,21 +254,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _busy = false;
 
   void _say(String message) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
 
   Future<void> _import(InventoryStore store) async {
-    final file = await openFile(acceptedTypeGroups: [
-      const XTypeGroup(label: 'Baselit Backup', extensions: ['zip']),
-    ]);
+    final file = await openFile(
+      acceptedTypeGroups: [
+        const XTypeGroup(label: 'Baselit Backup', extensions: ['zip']),
+      ],
+    );
     if (file == null || !mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Replace everything?', style: TextStyles.headline(context)),
-        content: const Text('Importing replaces all houses, items, and photos on this device with the backup.'),
+        content: const Text(
+          'Importing replaces all houses, items, and photos on this device with the backup.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Import')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Import'),
+          ),
         ],
       ),
     );
@@ -211,10 +296,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _export(InventoryStore store) async {
     final now = DateTime.now();
-    final stamp = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final stamp =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final location = await getSaveLocation(
       suggestedName: 'Baselit Backup $stamp.zip',
-      acceptedTypeGroups: [const XTypeGroup(label: 'Zip', extensions: ['zip'])],
+      acceptedTypeGroups: [
+        const XTypeGroup(label: 'Zip', extensions: ['zip']),
+      ],
     );
     if (location == null) return;
     setState(() => _busy = true);
@@ -261,14 +349,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: TextStyles.caption(context),
           ),
         ),
-        if (_busy) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+        if (_busy)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
         const SectionHeader('On This Device'),
-        GroupCard(children: [
-          ValueRow('Houses', '${store.houses.length}'),
-          ValueRow('Containers', '${store.containers.length}'),
-          ValueRow('Items', '${store.items.length}'),
-          ValueRow('Photos', '${store.photos.length}'),
-        ]),
+        GroupCard(
+          children: [
+            ValueRow('Houses', '${store.houses.length}'),
+            ValueRow('Containers', '${store.containers.length}'),
+            ValueRow('Items', '${store.items.length}'),
+            ValueRow('Photos', '${store.photos.length}'),
+          ],
+        ),
       ],
     );
   }

@@ -1,6 +1,5 @@
 // Shared building blocks styled after the iOS app's lists and controls.
 
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -14,10 +13,13 @@ class BaselitPage extends StatelessWidget {
   const BaselitPage({
     super.key,
     required this.title,
-    required this.children,
+    this.children = const [],
     this.actions = const [],
     this.largeTitle = true,
     this.header,
+    this.leading = const [],
+    this.background,
+    this.fill,
   });
 
   final String title;
@@ -26,16 +28,39 @@ class BaselitPage extends StatelessWidget {
   final bool largeTitle;
   final Widget? header;
 
+  /// Buttons on the left of the toolbar, for top-level pages.
+  final List<Widget> leading;
+
+  /// Overrides the grouped gray background, e.g. the Search tab's plain white.
+  final Color? background;
+
+  /// Fills the space under the title and header instead of a scrolling list.
+  final Widget? fill;
+
   @override
   Widget build(BuildContext context) {
     final canPop = Navigator.of(context).canPop();
+    final titleBlock = [
+      if (largeTitle)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(title, style: TextStyles.largeTitle(context)),
+        ),
+      ?header,
+    ];
     return Scaffold(
+      backgroundColor: background,
       body: SafeArea(
         bottom: false,
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(Sizes.pagePadding, 8, Sizes.pagePadding, 0),
+              padding: const EdgeInsets.fromLTRB(
+                Sizes.pagePadding,
+                8,
+                Sizes.pagePadding,
+                0,
+              ),
               child: SizedBox(
                 height: Sizes.roundButton,
                 child: Row(
@@ -45,34 +70,56 @@ class BaselitPage extends StatelessWidget {
                         icon: CupertinoIcons.chevron_left,
                         onPressed: () => Navigator.of(context).pop(),
                       ),
+                    for (final button in leading) ...[
+                      button,
+                      const SizedBox(width: 8),
+                    ],
                     Expanded(
                       child: largeTitle
                           ? const SizedBox()
-                          : Text(title,
+                          : Text(
+                              title,
                               textAlign: TextAlign.center,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyles.navTitle(context)),
+                              style: TextStyles.navTitle(context),
+                            ),
                     ),
-                    for (final action in actions) ...[const SizedBox(width: 8), action],
-                    if (canPop && actions.isEmpty) const SizedBox(width: Sizes.roundButton),
+                    for (final action in actions) ...[
+                      const SizedBox(width: 8),
+                      action,
+                    ],
+                    if (canPop && actions.isEmpty)
+                      const SizedBox(width: Sizes.roundButton),
                   ],
                 ),
               ),
             ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(Sizes.pagePadding, 8, Sizes.pagePadding, 120),
-                children: [
-                  if (largeTitle)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(title, style: TextStyles.largeTitle(context)),
-                    ),
-                  ?header,
-                  ...children,
-                ],
+            if (fill != null) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Sizes.pagePadding,
+                  8,
+                  Sizes.pagePadding,
+                  0,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: titleBlock,
+                ),
               ),
-            ),
+              Expanded(child: fill!),
+            ] else
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(
+                    Sizes.pagePadding,
+                    8,
+                    Sizes.pagePadding,
+                    120,
+                  ),
+                  children: [...titleBlock, ...children],
+                ),
+              ),
           ],
         ),
       ),
@@ -82,11 +129,20 @@ class BaselitPage extends StatelessWidget {
 
 /// The white circle button with a soft shadow used in the iOS toolbar.
 class RoundButton extends StatelessWidget {
-  const RoundButton({super.key, required this.icon, required this.onPressed, this.label});
+  const RoundButton({
+    super.key,
+    required this.icon,
+    required this.onPressed,
+    this.label,
+    this.color,
+  });
 
   final IconData icon;
   final VoidCallback onPressed;
   final String? label;
+
+  /// Fill color; defaults to the iOS glass color.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +156,7 @@ class RoundButton extends StatelessWidget {
     return Tooltip(
       message: label ?? '',
       child: Material(
-        color: colors.card,
+        color: Colors.transparent,
         shape: const StadiumBorder(),
         elevation: 0,
         shadowColor: Colors.black,
@@ -112,9 +168,14 @@ class RoundButton extends StatelessWidget {
             height: Sizes.roundButton,
             alignment: Alignment.center,
             decoration: BoxDecoration(
+              color: color ?? colors.glass,
               borderRadius: BorderRadius.circular(Sizes.roundButton),
               boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 16, offset: const Offset(0, 4)),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
               ],
             ),
             child: child,
@@ -132,14 +193,18 @@ class SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 22, 16, 8),
-        child: Text(text, style: TextStyles.sectionHeader(context)),
-      );
+    padding: const EdgeInsets.fromLTRB(16, 22, 16, 8),
+    child: Text(text, style: TextStyles.sectionHeader(context)),
+  );
 }
 
 /// A white rounded card holding rows separated by thin indented lines.
 class GroupCard extends StatelessWidget {
-  const GroupCard({super.key, required this.children, this.separatorIndent = 16});
+  const GroupCard({
+    super.key,
+    required this.children,
+    this.separatorIndent = 16,
+  });
 
   final List<Widget> children;
   final double separatorIndent;
@@ -159,7 +224,11 @@ class GroupCard extends StatelessWidget {
                 if (i > 0)
                   Padding(
                     padding: EdgeInsets.only(left: separatorIndent, right: 16),
-                    child: Divider(height: 0.5, thickness: 0.5, color: colors.separator),
+                    child: Divider(
+                      height: 0.5,
+                      thickness: 0.5,
+                      color: colors.separator,
+                    ),
                   ),
                 children[i],
               ],
@@ -200,8 +269,8 @@ class ListRow extends StatelessWidget {
     final color = destructive
         ? colors.destructive
         : muted
-            ? colors.secondaryLabel
-            : colors.label;
+        ? colors.secondaryLabel
+        : colors.label;
     return InkWell(
       onTap: onTap,
       child: ConstrainedBox(
@@ -216,16 +285,28 @@ class ListRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(title,
-                        style: (bold ? TextStyles.headline(context) : TextStyles.body(context))
-                            .copyWith(color: color)),
-                    if (subtitle != null) ...[const SizedBox(height: 3), subtitle!],
+                    Text(
+                      title,
+                      style:
+                          (bold
+                                  ? TextStyles.headline(context)
+                                  : TextStyles.body(context))
+                              .copyWith(color: color),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 3),
+                      subtitle!,
+                    ],
                   ],
                 ),
               ),
               ?trailing,
               if (onTap != null && trailing == null && !destructive)
-                Icon(CupertinoIcons.chevron_right, size: 16, color: colors.tertiaryLabel),
+                Icon(
+                  CupertinoIcons.chevron_right,
+                  size: 16,
+                  color: colors.tertiaryLabel,
+                ),
             ],
           ),
         ),
@@ -241,8 +322,10 @@ class RowIcon extends StatelessWidget {
   final Color? color;
 
   @override
-  Widget build(BuildContext context) =>
-      SizedBox(width: 28, child: Icon(icon, size: 22, color: color ?? context.colors.label));
+  Widget build(BuildContext context) => SizedBox(
+    width: 28,
+    child: Icon(icon, size: 22, color: color ?? context.colors.label),
+  );
 }
 
 /// A label and value on one row, like SwiftUI's LabeledContent.
@@ -254,29 +337,31 @@ class ValueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 52),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: TextStyles.body(context)),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  value,
-                  textAlign: TextAlign.right,
-                  style: TextStyles.body(context).copyWith(
-                    color: context.colors.secondaryLabel,
-                    fontFamily: monospaced ? 'Menlo' : null,
-                    fontFamilyFallback: monospaced ? const ['DejaVu Sans Mono', 'Roboto Mono', 'monospace'] : null,
-                  ),
-                ),
+    constraints: const BoxConstraints(minHeight: 52),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyles.body(context)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyles.body(context).copyWith(
+                color: context.colors.secondaryLabel,
+                fontFamily: monospaced ? 'Menlo' : null,
+                fontFamilyFallback: monospaced
+                    ? const ['DejaVu Sans Mono', 'Roboto Mono', 'monospace']
+                    : null,
               ),
-            ],
+            ),
           ),
-        ),
-      );
+        ],
+      ),
+    ),
+  );
 }
 
 /// A small icon and gray text, used for counts under a row title.
@@ -287,19 +372,26 @@ class CountLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        children: [
-          Icon(icon, size: 15, color: context.colors.secondaryLabel),
-          const SizedBox(width: 6),
-          Text(text, style: TextStyles.subheadline(context)),
-        ],
-      );
+    children: [
+      Icon(icon, size: 15, color: context.colors.secondaryLabel),
+      const SizedBox(width: 6),
+      Text(text, style: TextStyles.subheadline(context)),
+    ],
+  );
 }
 
-String plural(int count, String word) => '$count ${count == 1 ? word : '${word}s'}';
+String plural(int count, String word) =>
+    '$count ${count == 1 ? word : '${word}s'}';
 
 /// A rounded gray square holding an icon, or the first photo when there is one.
 class IconTile extends StatelessWidget {
-  const IconTile({super.key, required this.icon, this.photo, this.store, this.size = Sizes.tile});
+  const IconTile({
+    super.key,
+    required this.icon,
+    this.photo,
+    this.store,
+    this.size = Sizes.tile,
+  });
 
   final IconData icon;
   final Photo? photo;
@@ -309,7 +401,9 @@ class IconTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final radius = BorderRadius.circular(size > 40 ? Radii.tile : Radii.smallTile);
+    final radius = BorderRadius.circular(
+      size > 40 ? Radii.tile : Radii.smallTile,
+    );
     if (photo != null && store != null) {
       final file = store!.photoFile(photo!);
       return ClipRRect(
@@ -328,11 +422,11 @@ class IconTile extends StatelessWidget {
   }
 
   Widget _placeholder(BaselitColors colors, BorderRadius radius) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(color: colors.fill, borderRadius: radius),
-        child: Icon(icon, size: size * 0.5, color: colors.secondaryLabel),
-      );
+    width: size,
+    height: size,
+    decoration: BoxDecoration(color: colors.fill, borderRadius: radius),
+    child: Icon(icon, size: size * 0.5, color: colors.secondaryLabel),
+  );
 }
 
 /// "House › Location › Container", last part darker, like the iOS BreadcrumbView.
@@ -349,10 +443,20 @@ class Breadcrumb extends StatelessWidget {
       runSpacing: 2,
       children: [
         for (var i = 0; i < parts.length; i++) ...[
-          if (i > 0) Icon(CupertinoIcons.chevron_right, size: 10, color: colors.secondaryLabel),
-          Text(parts[i],
-              style: TextStyles.caption(context)
-                  .copyWith(color: i == parts.length - 1 ? colors.label : colors.secondaryLabel)),
+          if (i > 0)
+            Icon(
+              CupertinoIcons.chevron_right,
+              size: 10,
+              color: colors.secondaryLabel,
+            ),
+          Text(
+            parts[i],
+            style: TextStyles.caption(context).copyWith(
+              color: i == parts.length - 1
+                  ? colors.label
+                  : colors.secondaryLabel,
+            ),
+          ),
         ],
       ],
     );
@@ -361,24 +465,33 @@ class Breadcrumb extends StatelessWidget {
 
 /// Centered icon, title, and message for empty lists.
 class EmptyState extends StatelessWidget {
-  const EmptyState({super.key, required this.icon, required this.title, required this.message});
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
   final IconData icon;
   final String title;
   final String message;
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 120),
-        child: Column(
-          children: [
-            Icon(icon, size: 56, color: context.colors.secondaryLabel),
-            const SizedBox(height: 16),
-            Text(title, style: TextStyles.title(context).copyWith(fontSize: 22)),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center, style: TextStyles.subheadline(context)),
-          ],
+    padding: const EdgeInsets.only(top: 120),
+    child: Column(
+      children: [
+        Icon(icon, size: 56, color: context.colors.secondaryLabel),
+        const SizedBox(height: 16),
+        Text(title, style: TextStyles.title(context).copyWith(fontSize: 22)),
+        const SizedBox(height: 8),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: TextStyles.subheadline(context),
         ),
-      );
+      ],
+    ),
+  );
 }
 
 /// Rows of photo thumbnails for a detail screen.
@@ -389,34 +502,37 @@ class PhotoStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 96,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.all(12),
-          itemCount: photos.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 8),
-          itemBuilder: (context, i) => GestureDetector(
-            onTap: () => showDialog(
-              context: context,
-              builder: (_) => Dialog(
-                clipBehavior: Clip.antiAlias,
-                child: InteractiveViewer(child: Image.file(store.photoFile(photos[i]))),
-              ),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(Radii.tile),
-              child: Image.file(
-                store.photoFile(photos[i]),
-                width: 72,
-                height: 72,
-                fit: BoxFit.cover,
-                cacheWidth: 216,
-                errorBuilder: (_, _, _) => IconTile(icon: CupertinoIcons.photo, size: 72),
-              ),
+    height: 96,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.all(12),
+      itemCount: photos.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 8),
+      itemBuilder: (context, i) => GestureDetector(
+        onTap: () => showDialog(
+          context: context,
+          builder: (_) => Dialog(
+            clipBehavior: Clip.antiAlias,
+            child: InteractiveViewer(
+              child: Image.file(store.photoFile(photos[i])),
             ),
           ),
         ),
-      );
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(Radii.tile),
+          child: Image.file(
+            store.photoFile(photos[i]),
+            width: 72,
+            height: 72,
+            fit: BoxFit.cover,
+            cacheWidth: 216,
+            errorBuilder: (_, _, _) =>
+                IconTile(icon: CupertinoIcons.photo, size: 72),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 /// A text field inside a card row, for forms.
@@ -438,17 +554,20 @@ class FieldRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: TextField(
-          controller: controller,
-          autofocus: autofocus,
-          minLines: multiline ? 3 : 1,
-          maxLines: multiline ? 8 : 1,
-          keyboardType: number ? TextInputType.number : null,
-          textCapitalization: TextCapitalization.sentences,
-          style: TextStyles.body(context),
-          cursorColor: context.colors.label,
-          decoration: InputDecoration(hintText: hint, contentPadding: const EdgeInsets.symmetric(vertical: 14)),
-        ),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    child: TextField(
+      controller: controller,
+      autofocus: autofocus,
+      minLines: multiline ? 3 : 1,
+      maxLines: multiline ? 8 : 1,
+      keyboardType: number ? TextInputType.number : null,
+      textCapitalization: TextCapitalization.sentences,
+      style: TextStyles.body(context),
+      cursorColor: context.colors.label,
+      decoration: InputDecoration(
+        hintText: hint,
+        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+      ),
+    ),
+  );
 }

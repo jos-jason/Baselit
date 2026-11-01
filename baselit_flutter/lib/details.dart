@@ -16,55 +16,67 @@ List<Widget> _contents(
   List<Location> locations = const [],
   List<StorageContainer> containers = const [],
   List<Item> items = const [],
-}) =>
-    [
-      if (locations.isNotEmpty) ...[
-        const SectionHeader('Locations'),
-        GroupCard(
-          separatorIndent: 74,
-          children: [
-            for (final l in locations)
-              ListRow(
-                title: l.name,
-                leading: const IconTile(icon: CupertinoIcons.map_pin),
-                subtitle: CountLabel(
-                  CupertinoIcons.cube_box,
-                  plural(store.itemsInLocation(l).length, 'item'),
-                ),
-                onTap: () => push(context, LocationDetailScreen(location: l)),
-              ),
-          ],
-        ),
-      ],
-      if (containers.isNotEmpty) ...[
-        const SectionHeader('Containers'),
-        GroupCard(
-          separatorIndent: 74,
-          children: [for (final c in containers) containerRow(context, store, c)],
-        ),
-      ],
-      if (items.isNotEmpty) ...[
-        const SectionHeader('Items'),
-        GroupCard(
-          separatorIndent: 74,
-          children: [for (final i in items) itemRow(context, store, i)],
-        ),
-      ],
-      if (locations.isEmpty && containers.isEmpty && items.isEmpty)
-        const EmptyState(icon: CupertinoIcons.tray, title: 'Empty', message: 'Nothing is stored here yet.'),
-    ];
-
-Widget _notes(BuildContext context, String? notes) => (notes == null || notes.isEmpty)
-    ? const SizedBox.shrink()
-    : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const SectionHeader('Notes'),
-        GroupCard(children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Align(alignment: Alignment.centerLeft, child: Text(notes, style: TextStyles.body(context))),
+}) => [
+  if (locations.isNotEmpty) ...[
+    const SectionHeader('Locations'),
+    GroupCard(
+      separatorIndent: 74,
+      children: [
+        for (final l in locations)
+          ListRow(
+            title: l.name,
+            leading: const IconTile(icon: CupertinoIcons.map_pin),
+            subtitle: CountLabel(
+              CupertinoIcons.cube_box,
+              plural(store.itemsInLocation(l).length, 'item'),
+            ),
+            onTap: () => push(context, LocationDetailScreen(location: l)),
           ),
-        ]),
-      ]);
+      ],
+    ),
+  ],
+  if (containers.isNotEmpty) ...[
+    const SectionHeader('Containers'),
+    GroupCard(
+      separatorIndent: 74,
+      children: [for (final c in containers) containerRow(context, store, c)],
+    ),
+  ],
+  if (items.isNotEmpty) ...[
+    const SectionHeader('Items'),
+    GroupCard(
+      separatorIndent: 74,
+      children: [for (final i in items) itemRow(context, store, i)],
+    ),
+  ],
+  if (locations.isEmpty && containers.isEmpty && items.isEmpty)
+    const EmptyState(
+      icon: CupertinoIcons.tray,
+      title: 'Empty',
+      message: 'Nothing is stored here yet.',
+    ),
+];
+
+Widget _notes(BuildContext context, String? notes) =>
+    (notes == null || notes.isEmpty)
+    ? const SizedBox.shrink()
+    : Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SectionHeader('Notes'),
+          GroupCard(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(notes, style: TextStyles.body(context)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
 
 class UnassignedScreen extends StatelessWidget {
   const UnassignedScreen({super.key});
@@ -93,7 +105,11 @@ class HouseDetailScreen extends StatelessWidget {
         RoundButton(
           icon: CupertinoIcons.plus,
           onPressed: () async {
-            final name = await askForName(context, 'New Location', 'Location name');
+            final name = await askForName(
+              context,
+              'New Location',
+              'Location name',
+            );
             if (name != null) await store.addLocation(name, house);
           },
         ),
@@ -152,16 +168,25 @@ class ContainerDetailScreen extends StatelessWidget {
     return BaselitPage(
       title: container.name,
       children: [
-        if (photos.isNotEmpty) GroupCard(children: [PhotoStrip(store: store, photos: photos)]),
-        const SizedBox(height: 12),
-        GroupCard(children: [
-          ValueRow('ID', container.identifier, monospaced: true),
-          if (container.containerType?.isNotEmpty ?? false) ValueRow('Type', container.containerType!),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Align(alignment: Alignment.centerLeft, child: Breadcrumb(store.containerPath(container))),
+        if (photos.isNotEmpty)
+          GroupCard(
+            children: [PhotoStrip(store: store, photos: photos)],
           ),
-        ]),
+        const SizedBox(height: 12),
+        GroupCard(
+          children: [
+            ValueRow('ID', container.identifier, monospaced: true),
+            if (container.containerType?.isNotEmpty ?? false)
+              ValueRow('Type', container.containerType!),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Breadcrumb(store.containerPath(container)),
+              ),
+            ),
+          ],
+        ),
         _notes(context, container.notes),
         ..._contents(
           context,
@@ -185,11 +210,13 @@ class ItemDetailScreen extends StatelessWidget {
     final photos = store.photosFor(itemID: item.exportID);
     final homes = store.homesForItem(item);
     final details = [
-      if (item.itemDescription?.isNotEmpty ?? false) ValueRow('Description', item.itemDescription!),
+      if (item.itemDescription?.isNotEmpty ?? false)
+        ValueRow('Description', item.itemDescription!),
       if (item.quantity > 1) ValueRow('Quantity', '${item.quantity}'),
       if (item.brand?.isNotEmpty ?? false) ValueRow('Brand', item.brand!),
       if (item.model?.isNotEmpty ?? false) ValueRow('Model', item.model!),
-      if (item.condition?.isNotEmpty ?? false) ValueRow('Condition', item.condition!),
+      if (item.condition?.isNotEmpty ?? false)
+        ValueRow('Condition', item.condition!),
     ];
 
     return BaselitPage(
@@ -203,39 +230,56 @@ class ItemDetailScreen extends StatelessWidget {
         ),
       ],
       children: [
-        GroupCard(children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Align(alignment: Alignment.centerLeft, child: Text(item.name, style: TextStyles.title(context))),
-          ),
-        ]),
+        GroupCard(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(item.name, style: TextStyles.title(context)),
+              ),
+            ),
+          ],
+        ),
         if (photos.isNotEmpty) ...[
           const SectionHeader('Photos'),
-          GroupCard(children: [PhotoStrip(store: store, photos: photos)]),
+          GroupCard(
+            children: [PhotoStrip(store: store, photos: photos)],
+          ),
         ],
         const SizedBox(height: 22),
-        GroupCard(children: [
-          ValueRow('ID', item.identifier, monospaced: true),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Align(alignment: Alignment.centerLeft, child: Breadcrumb(store.itemPath(item))),
-          ),
-        ]),
+        GroupCard(
+          children: [
+            ValueRow('ID', item.identifier, monospaced: true),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Breadcrumb(store.itemPath(item)),
+              ),
+            ),
+          ],
+        ),
         if (details.isNotEmpty) ...[
           const SectionHeader('Details'),
           GroupCard(children: details),
         ],
         _notes(context, item.notes),
         const SectionHeader('Stored In'),
-        GroupCard(children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(store.itemPath(item).join(' › '), style: TextStyles.subheadline(context)),
+        GroupCard(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  store.itemPath(item).join(' › '),
+                  style: TextStyles.subheadline(context),
+                ),
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
         const SectionHeader('Belongs'),
         GroupCard(
           separatorIndent: 58,
@@ -243,14 +287,20 @@ class ItemDetailScreen extends StatelessWidget {
             for (final home in homes)
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Align(alignment: Alignment.centerLeft, child: Breadcrumb(store.homePath(home))),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Breadcrumb(store.homePath(home)),
+                ),
               ),
             if (store.itemHouse(item) != null)
               store.isAtHome(item)
                   ? ListRow(
                       title: 'Current location is home',
                       muted: true,
-                      leading: RowIcon(CupertinoIcons.checkmark_alt_circle_fill, color: colors.secondaryLabel),
+                      leading: RowIcon(
+                        CupertinoIcons.checkmark_alt_circle_fill,
+                        color: colors.secondaryLabel,
+                      ),
                     )
                   : ListRow(
                       title: 'Set Current Location as Home',

@@ -3,6 +3,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import 'bubble_grid.dart';
 import 'details.dart';
 import 'forms.dart';
 import 'models.dart';
@@ -29,7 +30,11 @@ Widget itemRow(BuildContext context, InventoryStore store, Item item) {
 }
 
 /// A list row for a container: photo or archive tile, name, and where it is.
-Widget containerRow(BuildContext context, InventoryStore store, StorageContainer container) {
+Widget containerRow(
+  BuildContext context,
+  InventoryStore store,
+  StorageContainer container,
+) {
   final photos = store.photosFor(containerID: container.exportID);
   final count = store.itemsInContainer(container).length;
   return ListRow(
@@ -62,6 +67,8 @@ class SearchTab extends StatefulWidget {
   State<SearchTab> createState() => _SearchTabState();
 }
 
+/// Matches the iOS Search tab: a white page with the bubble grid while the
+/// search field is empty, and the usual gray grouped list once you type.
 class _SearchTabState extends State<SearchTab> {
   final _query = TextEditingController();
   String? _houseID;
@@ -72,102 +79,221 @@ class _SearchTabState extends State<SearchTab> {
     super.dispose();
   }
 
+  Widget _filterButton(InventoryStore store, BaselitColors colors) =>
+      PopupMenuButton<String>(
+        tooltip: 'Filter by house',
+        position: PopupMenuPosition.under,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        color: colors.card,
+        onSelected: (id) => setState(() => _houseID = id.isEmpty ? null : id),
+        itemBuilder: (_) => [
+          CheckedPopupMenuItem(
+            value: '',
+            checked: _houseID == null,
+            child: const Text('All Houses'),
+          ),
+          for (final h in store.sortedHouses)
+            CheckedPopupMenuItem(
+              value: h.exportID,
+              checked: _houseID == h.exportID,
+              child: Text(h.name),
+            ),
+        ],
+        child: IgnorePointer(
+          child: RoundButton(
+            icon: _houseID == null
+                ? CupertinoIcons.line_horizontal_3_decrease_circle
+                : CupertinoIcons.line_horizontal_3_decrease_circle_fill,
+
+            onPressed: () {},
+          ),
+        ),
+      );
+
+  Widget _searchField(BaselitColors colors) => Container(
+    height: 48,
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    decoration: BoxDecoration(
+      color: colors.searchFill,
+      borderRadius: BorderRadius.circular(24),
+    ),
+    child: Row(
+      children: [
+        Icon(CupertinoIcons.search, size: 20, color: colors.label),
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextField(
+            controller: _query,
+            onChanged: (_) => setState(() {}),
+            style: TextStyles.body(context),
+            cursorColor: colors.label,
+            decoration: const InputDecoration(
+              hintText: 'Search everything...',
+              isDense: true,
+            ),
+          ),
+        ),
+        if (_query.text.isNotEmpty)
+          GestureDetector(
+            onTap: () => setState(_query.clear),
+            child: Icon(
+              CupertinoIcons.xmark_circle_fill,
+              size: 18,
+              color: colors.tertiaryLabel,
+            ),
+          ),
+      ],
+    ),
+  );
+
+  /// Shown when the house filter hides everything, with a way back to all houses.
+  Widget _filteredEmpty(House house) => Column(
+    children: [
+      EmptyState(
+        icon: CupertinoIcons.line_horizontal_3_decrease_circle,
+        title: 'No Results',
+        message: 'Nothing in ${house.name} matches.',
+      ),
+      const SizedBox(height: 12),
+      FilledButton(
+        onPressed: () => setState(() => _houseID = null),
+        style: FilledButton.styleFrom(shape: const StadiumBorder()),
+        child: const Text('Show All Houses'),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
     final colors = context.colors;
-    final query = _query.text;
-    final items = store.searchItems(query, houseID: _houseID);
-    final containers = store.searchContainers(query, houseID: _houseID);
+    final query = _query.text.trim();
     final house = store.house(_houseID);
+    final toolbar = (
+      leading: [
+        RoundButton(
+          icon: CupertinoIcons.gear,
+          onPressed: () => push(context, const SettingsScreen()),
+        ),
+      ],
+      actions: [_filterButton(store, colors)],
+    );
+
+    if (query.isEmpty) {
+      final entries = bubbleEntries(
+        store,
+        houseID: _houseID,
+        openItem: (item) => push(context, ItemDetailScreen(item: item)),
+        openContainer: (c) =>
+            push(context, ContainerDetailScreen(container: c)),
+      );
+      return BaselitPage(
+        title: 'Search',
+        background: colors.plainBackground,
+        leading: toolbar.leading,
+        actions: toolbar.actions,
+        header: _searchField(colors),
+        fill: entries.isNotEmpty
+            ? Padding(
+                padding: const EdgeInsets.only(bottom: 90),
+                child: BubbleGrid(store: store, entries: entries),
+              )
+            : SingleChildScrollView(
+                child: house != null
+                    ? _filteredEmpty(house)
+                    : const EmptyState(
+                        icon: CupertinoIcons.search,
+                        title: 'Search',
+                        message: 'Search across houses, locations, containers, and items.',
+                      ),
+              ),
+      );
+    }
+
+    final q = query.toLowerCase();
+    bool has(String? field) => field?.toLowerCase().contains(q) ?? false;
+    final houses = store.sortedHouses
+        .where(
+          (h) =>
+              (has(h.name) || has(h.address) || has(h.notes)) &&
+              (_houseID == null || h.exportID == _houseID),
+        )
+        .toList();
+    final locations =
+        store.locations
+            .where(
+              (l) =>
+                  (has(l.name) || has(l.notes)) &&
+                  (_houseID == null ||
+                      store.locationHouse(l)?.exportID == _houseID),
+            )
+            .toList()
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+    final containers = store.searchContainers(query, houseID: _houseID);
+    final items = store.searchItems(query, houseID: _houseID);
+    final nothing =
+        houses.isEmpty &&
+        locations.isEmpty &&
+        containers.isEmpty &&
+        items.isEmpty;
 
     return BaselitPage(
       title: 'Search',
-      actions: [
-        PopupMenuButton<String?>(
-          tooltip: 'Filter by house',
-          position: PopupMenuPosition.under,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          color: colors.card,
-          onSelected: (id) => setState(() => _houseID = id == '' ? null : id),
-          itemBuilder: (_) => [
-            CheckedPopupMenuItem(value: '', checked: _houseID == null, child: const Text('All Houses')),
-            for (final h in store.sortedHouses)
-              CheckedPopupMenuItem(value: h.exportID, checked: _houseID == h.exportID, child: Text(h.name)),
-          ],
-          child: IgnorePointer(
-            child: RoundButton(
-              icon: _houseID == null
-                  ? CupertinoIcons.line_horizontal_3_decrease_circle
-                  : CupertinoIcons.line_horizontal_3_decrease_circle_fill,
-              onPressed: () {},
-            ),
-          ),
-        ),
-        RoundButton(icon: CupertinoIcons.gear, onPressed: () => push(context, const SettingsScreen())),
-      ],
-      header: Column(
-        children: [
-          Container(
-            height: 44,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(color: colors.fill, borderRadius: BorderRadius.circular(22)),
-            child: Row(
-              children: [
-                Icon(CupertinoIcons.search, size: 18, color: colors.secondaryLabel),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _query,
-                    onChanged: (_) => setState(() {}),
-                    style: TextStyles.body(context),
-                    cursorColor: colors.label,
-                    decoration: const InputDecoration(hintText: 'Items, notes, brands…', isDense: true),
-                  ),
-                ),
-                if (query.isNotEmpty)
-                  GestureDetector(
-                    onTap: () => setState(_query.clear),
-                    child: Icon(CupertinoIcons.xmark_circle_fill, size: 18, color: colors.tertiaryLabel),
-                  ),
-              ],
-            ),
-          ),
-          if (house != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: InputChip(
-                  avatar: Icon(CupertinoIcons.house_fill, size: 14, color: colors.label),
-                  label: Text(house.name),
-                  onDeleted: () => setState(() => _houseID = null),
-                  shape: const StadiumBorder(),
-                  side: BorderSide.none,
-                  backgroundColor: colors.card,
-                ),
-              ),
-            ),
-        ],
-      ),
+      leading: toolbar.leading,
+      actions: toolbar.actions,
+      header: _searchField(colors),
       children: [
-        if (items.isEmpty && containers.isEmpty)
-          EmptyState(
-            icon: CupertinoIcons.search,
-            title: 'No Results',
-            message: house == null
-                ? 'Nothing matches “$query”.'
-                : 'Nothing in ${house.name} matches. Try All Houses.',
+        if (nothing)
+          house != null
+              ? _filteredEmpty(house)
+              : const EmptyState(
+                  icon: CupertinoIcons.search,
+                  title: 'No Results',
+                  message: 'Nothing matched your search.',
+                ),
+        if (houses.isNotEmpty) ...[
+          const SectionHeader('Houses'),
+          GroupCard(
+            separatorIndent: 74,
+            children: [
+              for (final h in houses)
+                ListRow(
+                  title: h.name,
+                  leading: const IconTile(icon: CupertinoIcons.house),
+                  onTap: () => push(context, HouseDetailScreen(house: h)),
+                ),
+            ],
           ),
+        ],
+        if (locations.isNotEmpty) ...[
+          const SectionHeader('Locations'),
+          GroupCard(
+            separatorIndent: 74,
+            children: [
+              for (final l in locations)
+                ListRow(
+                  title: l.name,
+                  leading: const IconTile(icon: CupertinoIcons.map_pin),
+                  subtitle: Breadcrumb(store.locationPath(l)..removeLast()),
+                  onTap: () => push(context, LocationDetailScreen(location: l)),
+                ),
+            ],
+          ),
+        ],
         if (containers.isNotEmpty) ...[
           const SectionHeader('Containers'),
           GroupCard(
             separatorIndent: 74,
-            children: [for (final c in containers) containerRow(context, store, c)],
+            children: [
+              for (final c in containers) containerRow(context, store, c),
+            ],
           ),
         ],
         if (items.isNotEmpty) ...[
-          SectionHeader(query.isEmpty ? 'All Items' : 'Items'),
+          const SectionHeader('Items'),
           GroupCard(
             separatorIndent: 74,
             children: [for (final i in items) itemRow(context, store, i)],
@@ -214,7 +340,10 @@ class PlacesTab extends StatelessWidget {
                   title: 'Unassigned',
                   bold: true,
                   leading: const IconTile(icon: CupertinoIcons.question_square),
-                  subtitle: CountLabel(CupertinoIcons.cube_box, plural(unassigned, 'item')),
+                  subtitle: CountLabel(
+                    CupertinoIcons.cube_box,
+                    plural(unassigned, 'item'),
+                  ),
                   onTap: () => push(context, const UnassignedScreen()),
                 ),
               for (final house in store.sortedHouses)
@@ -256,7 +385,9 @@ class ContainersTab extends StatelessWidget {
         else
           GroupCard(
             separatorIndent: 74,
-            children: [for (final c in containers) containerRow(context, store, c)],
+            children: [
+              for (final c in containers) containerRow(context, store, c),
+            ],
           ),
       ],
     );

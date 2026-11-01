@@ -32,6 +32,10 @@ class BaselitColors extends ThemeExtension<BaselitColors> {
     required this.fill,
     required this.tabHighlight,
     required this.destructive,
+    required this.plainBackground,
+    required this.searchFill,
+    required this.bubbleFill,
+    required this.glass,
   });
 
   final Color background;
@@ -44,6 +48,14 @@ class BaselitColors extends ThemeExtension<BaselitColors> {
   final Color tabHighlight;
   final Color destructive;
 
+  /// The Search tab's plain background (iOS systemBackground), white in light mode.
+  final Color plainBackground;
+  final Color searchFill;
+  final Color bubbleFill;
+
+  /// iOS 26 "glass" fill for the tab bar and round toolbar buttons.
+  final Color glass;
+
   static const light = BaselitColors(
     background: Color(0xFFF2F2F7),
     card: Color(0xFFFFFFFF),
@@ -51,9 +63,13 @@ class BaselitColors extends ThemeExtension<BaselitColors> {
     secondaryLabel: Color(0x993C3C43),
     tertiaryLabel: Color(0x4D3C3C43),
     separator: Color(0x4A3C3C43),
-    fill: Color(0x14747480),
-    tabHighlight: Color(0xFFE6E6EB),
+    fill: Color(0xFFF1F1F2),
+    tabHighlight: Color(0xFFEAEAED),
     destructive: Color(0xFFFF3B30),
+    plainBackground: Color(0xFFFFFFFF),
+    searchFill: Color(0xFFECECEC),
+    bubbleFill: Color(0xFFF0F0F2),
+    glass: Color(0xFFFCFCFF),
   );
 
   static const dark = BaselitColors(
@@ -63,16 +79,21 @@ class BaselitColors extends ThemeExtension<BaselitColors> {
     secondaryLabel: Color(0x99EBEBF5),
     tertiaryLabel: Color(0x4DEBEBF5),
     separator: Color(0x99545458),
-    fill: Color(0x2E767680),
-    tabHighlight: Color(0xFF3A3A3C),
+    fill: Color(0xFF2E2E32),
+    tabHighlight: Color(0xFF3A3A3A),
     destructive: Color(0xFFFF453A),
+    plainBackground: Color(0xFF000000),
+    searchFill: Color(0x3D767680),
+    bubbleFill: Color(0xFF1C1C1E),
+    glass: Color(0xFF191919),
   );
 
   @override
   BaselitColors copyWith() => this;
 
   @override
-  BaselitColors lerp(BaselitColors? other, double t) => t < 0.5 ? this : (other ?? this);
+  BaselitColors lerp(BaselitColors? other, double t) =>
+      t < 0.5 ? this : (other ?? this);
 }
 
 extension BaselitTheme on BuildContext {
@@ -81,11 +102,20 @@ extension BaselitTheme on BuildContext {
 
 /// [fontFamily] replaces Inter, for rendering previews in tests without network.
 ThemeData buildTheme(Brightness brightness, {String? fontFamily}) {
-  final colors = brightness == Brightness.light ? BaselitColors.light : BaselitColors.dark;
-  final base = ThemeData(brightness: brightness, fontFamily: fontFamily).textTheme;
+  final colors = brightness == Brightness.light
+      ? BaselitColors.light
+      : BaselitColors.dark;
+  final base = ThemeData(
+    brightness: brightness,
+    fontFamily: fontFamily,
+  ).textTheme;
   // Inter is the closest freely licensed match to Apple's SF Pro.
   final text = (fontFamily == null ? GoogleFonts.interTextTheme(base) : base)
-      .apply(bodyColor: colors.label, displayColor: colors.label, fontFamily: fontFamily);
+      .apply(
+        bodyColor: colors.label,
+        displayColor: colors.label,
+        fontFamily: fontFamily,
+      );
 
   return ThemeData(
     brightness: brightness,
@@ -104,18 +134,22 @@ ThemeData buildTheme(Brightness brightness, {String? fontFamily}) {
     highlightColor: colors.fill,
     dividerColor: colors.separator,
     extensions: [colors],
-    pageTransitionsTheme: const PageTransitionsTheme(builders: {
-      TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-    }),
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+      },
+    ),
     inputDecorationTheme: InputDecorationTheme(
       border: InputBorder.none,
       hintStyle: TextStyle(color: colors.tertiaryLabel),
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: colors.card,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.card)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.card),
+      ),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
@@ -128,18 +162,37 @@ ThemeData buildTheme(Brightness brightness, {String? fontFamily}) {
 
 /// Text styles named after the iOS ones the app uses.
 class TextStyles {
-  static TextStyle largeTitle(BuildContext c) =>
-      TextStyle(fontSize: 34, fontWeight: FontWeight.w700, letterSpacing: -0.6, color: c.colors.label);
-  static TextStyle title(BuildContext c) =>
-      TextStyle(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.4, color: c.colors.label);
-  static TextStyle navTitle(BuildContext c) =>
-      TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: c.colors.label);
-  static TextStyle headline(BuildContext c) =>
-      TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: c.colors.label);
-  static TextStyle body(BuildContext c) => TextStyle(fontSize: 17, color: c.colors.label);
+  static TextStyle largeTitle(BuildContext c) => TextStyle(
+    fontSize: 34,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.6,
+    color: c.colors.label,
+  );
+  static TextStyle title(BuildContext c) => TextStyle(
+    fontSize: 28,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.4,
+    color: c.colors.label,
+  );
+  static TextStyle navTitle(BuildContext c) => TextStyle(
+    fontSize: 17,
+    fontWeight: FontWeight.w600,
+    color: c.colors.label,
+  );
+  static TextStyle headline(BuildContext c) => TextStyle(
+    fontSize: 17,
+    fontWeight: FontWeight.w600,
+    color: c.colors.label,
+  );
+  static TextStyle body(BuildContext c) =>
+      TextStyle(fontSize: 17, color: c.colors.label);
   static TextStyle subheadline(BuildContext c) =>
       TextStyle(fontSize: 15, color: c.colors.secondaryLabel);
-  static TextStyle caption(BuildContext c) => TextStyle(fontSize: 12, color: c.colors.secondaryLabel);
-  static TextStyle sectionHeader(BuildContext c) =>
-      TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: c.colors.secondaryLabel);
+  static TextStyle caption(BuildContext c) =>
+      TextStyle(fontSize: 12, color: c.colors.secondaryLabel);
+  static TextStyle sectionHeader(BuildContext c) => TextStyle(
+    fontSize: 17,
+    fontWeight: FontWeight.w600,
+    color: c.colors.secondaryLabel,
+  );
 }
