@@ -316,6 +316,7 @@ enum BackupImportService {
                 // New house, no conflict
                 let house = House(name: exportHouse.name, address: exportHouse.address, notes: exportHouse.notes)
                 house.createdAt = exportHouse.createdAt
+                house.syncID = exportHouse.exportID.uuidString
                 context.insert(house)
                 houseMap[exportHouse.exportID] = house
                 result.housesImported += 1
@@ -355,6 +356,7 @@ enum BackupImportService {
                 let parentLocation = exportLoc.parentLocationExportID.flatMap { locationMap[$0] }
                 let location = Location(name: exportLoc.name, house: house, parentLocation: parentLocation, notes: exportLoc.notes)
                 location.createdAt = exportLoc.createdAt
+                location.syncID = exportLoc.exportID.uuidString
                 context.insert(location)
                 locationMap[exportLoc.exportID] = location
                 result.locationsImported += 1
@@ -411,6 +413,7 @@ enum BackupImportService {
                 container.createdAt = exportContainer.createdAt
                 container.lastLabelPrintedAt = exportContainer.lastLabelPrintedAt
                 container.house = exportContainer.houseExportID.flatMap { houseMap[$0] }
+                container.syncID = exportContainer.exportID.uuidString
                 context.insert(container)
                 containerMap[exportContainer.exportID] = container
                 result.containersImported += 1
@@ -472,6 +475,7 @@ enum BackupImportService {
                 item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
                 item.house = exportItem.houseExportID.flatMap { houseMap[$0] }
                 item.createdAt = exportItem.createdAt
+                item.syncID = exportItem.exportID.uuidString
                 context.insert(item)
                 itemMap[exportItem.exportID] = item
                 result.itemsImported += 1
@@ -496,6 +500,7 @@ enum BackupImportService {
             hl.ownerContainer = exportHL.ownerContainerExportID.flatMap { containerMap[$0] }
             hl.createdAt = exportHL.createdAt
             hl.updatedAt = exportHL.updatedAt
+            hl.syncID = exportHL.exportID.uuidString
             context.insert(hl)
             result.homeLocationsImported += 1
         }
@@ -523,6 +528,7 @@ enum BackupImportService {
         for exportHouse in manifest.houses {
             let house = House(name: exportHouse.name, address: exportHouse.address, notes: exportHouse.notes)
             house.createdAt = exportHouse.createdAt
+            house.syncID = exportHouse.exportID.uuidString
             context.insert(house)
             houseMap[exportHouse.exportID] = house
             result.housesImported += 1
@@ -535,6 +541,7 @@ enum BackupImportService {
             let parentLocation = exportLoc.parentLocationExportID.flatMap { locationMap[$0] }
             let location = Location(name: exportLoc.name, house: house, parentLocation: parentLocation, notes: exportLoc.notes)
             location.createdAt = exportLoc.createdAt
+            location.syncID = exportLoc.exportID.uuidString
             context.insert(location)
             locationMap[exportLoc.exportID] = location
             result.locationsImported += 1
@@ -555,6 +562,7 @@ enum BackupImportService {
             container.createdAt = exportContainer.createdAt
             container.lastLabelPrintedAt = exportContainer.lastLabelPrintedAt
             container.house = exportContainer.houseExportID.flatMap { houseMap[$0] }
+            container.syncID = exportContainer.exportID.uuidString
             context.insert(container)
             containerMap[exportContainer.exportID] = container
             result.containersImported += 1
@@ -574,6 +582,7 @@ enum BackupImportService {
             item.location = exportItem.locationExportID.flatMap { locationMap[$0] }
             item.house = exportItem.houseExportID.flatMap { houseMap[$0] }
             item.createdAt = exportItem.createdAt
+            item.syncID = exportItem.exportID.uuidString
             context.insert(item)
             itemMap[exportItem.exportID] = item
             result.itemsImported += 1
@@ -595,6 +604,7 @@ enum BackupImportService {
             hl.ownerContainer = exportHL.ownerContainerExportID.flatMap { containerMap[$0] }
             hl.createdAt = exportHL.createdAt
             hl.updatedAt = exportHL.updatedAt
+            hl.syncID = exportHL.exportID.uuidString
             context.insert(hl)
             result.homeLocationsImported += 1
         }
@@ -648,6 +658,7 @@ enum BackupImportService {
             photo.location = ownerLocation
             photo.container = ownerContainer
             photo.item = ownerItem
+            photo.syncID = exportPhoto.exportID.uuidString
             context.insert(photo)
             count += 1
         }

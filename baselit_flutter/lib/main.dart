@@ -2,29 +2,44 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'store.dart';
+import 'sync.dart';
 import 'tabs.dart';
 import 'theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  final store = InventoryStore()..load();
-  runApp(BaselitApp(store: store));
+  final store = InventoryStore();
+  final sync = SyncService(store);
+  store.load().then((_) async {
+    await sync.load();
+    sync.start();
+  });
+  runApp(BaselitApp(store: store, sync: sync));
 }
 
 class BaselitApp extends StatelessWidget {
-  const BaselitApp({super.key, required this.store, this.fontFamily});
+  BaselitApp({
+    super.key,
+    required this.store,
+    SyncService? sync,
+    this.fontFamily,
+  }) : sync = sync ?? SyncService(store);
   final InventoryStore store;
+  final SyncService sync;
   final String? fontFamily;
 
   @override
   Widget build(BuildContext context) => StoreScope(
     store: store,
-    child: MaterialApp(
-      title: 'Baselit',
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.light, fontFamily: fontFamily),
-      darkTheme: buildTheme(Brightness.dark, fontFamily: fontFamily),
-      home: const HomeShell(),
+    child: SyncScope(
+      sync: sync,
+      child: MaterialApp(
+        title: 'Baselit',
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(Brightness.light, fontFamily: fontFamily),
+        darkTheme: buildTheme(Brightness.dark, fontFamily: fontFamily),
+        home: const HomeShell(),
+      ),
     ),
   );
 }

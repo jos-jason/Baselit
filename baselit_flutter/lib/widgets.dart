@@ -548,6 +548,8 @@ class FieldRow extends StatelessWidget {
     this.multiline = false,
     this.number = false,
     this.autofocus = false,
+    this.obscure = false,
+    this.keyboardType,
   });
 
   final TextEditingController controller;
@@ -555,6 +557,10 @@ class FieldRow extends StatelessWidget {
   final bool multiline;
   final bool number;
   final bool autofocus;
+  final bool obscure;
+
+  /// For addresses and emails; also turns off auto-capitalization.
+  final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -562,10 +568,14 @@ class FieldRow extends StatelessWidget {
     child: TextField(
       controller: controller,
       autofocus: autofocus,
+      obscureText: obscure,
+      autocorrect: !obscure && keyboardType == null,
       minLines: multiline ? 3 : 1,
       maxLines: multiline ? 8 : 1,
-      keyboardType: number ? TextInputType.number : null,
-      textCapitalization: TextCapitalization.sentences,
+      keyboardType: number ? TextInputType.number : keyboardType,
+      textCapitalization: obscure || keyboardType != null
+          ? TextCapitalization.none
+          : TextCapitalization.sentences,
       style: TextStyles.body(context),
       cursorColor: context.colors.label,
       decoration: InputDecoration(

@@ -251,11 +251,12 @@
 				DEVELOPMENT_TEAM = 3BCCV5TG64;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "";
+				INFOPLIST_FILE = "Baselit-Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Baselit uses the camra to capture images of your items when you take one. It also scans QR codes that identify entries in the database.";
 				INFOPLIST_KEY_NSMainStoryboardFile = No;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -302,11 +303,12 @@
 				DEVELOPMENT_TEAM = 3BCCV5TG64;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "";
+				INFOPLIST_FILE = "Baselit-Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Baselit uses the camra to capture images of your items when you take one. It also scans QR codes that identify entries in the database.";
 				INFOPLIST_KEY_NSMainStoryboardFile = No;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

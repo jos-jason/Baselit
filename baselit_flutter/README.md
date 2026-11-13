@@ -3,7 +3,9 @@
 A simpler Flutter companion to the iOS app. It stores data in the same layout
 as an iOS backup (`baselit_backup.json` plus a `photos/` folder), so you move
 your inventory between devices by exporting a backup on one and importing it
-on the other (Settings, from the gear on the Search tab).
+on the other (Settings, from the gear on the Search tab). It can also sync with
+the iOS app through your own PocketBase server; see
+[pocketbase/README.md](../pocketbase/README.md).
 
 The look follows the iOS app: grouped gray background, white cards with 26pt
 corners, gray icon tiles, Cupertino icons, a black and white accent, and a

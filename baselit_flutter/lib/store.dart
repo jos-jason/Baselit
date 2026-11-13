@@ -568,6 +568,120 @@ class InventoryStore extends ChangeNotifier {
     }
     await File(zipPath).writeAsBytes(ZipEncoder().encode(archive));
   }
+
+  // MARK: - Sync
+
+  /// The folder that holds the inventory folder; sync keeps its state here.
+  Directory get appFolder => _root.parent;
+
+  /// Every record as its backup JSON, keyed by lowercase ID, for PocketBase sync.
+  Map<String, ({String kind, Map<String, Object?> data})> syncRecords() => {
+    for (final h in houses)
+      h.exportID.toLowerCase(): (kind: 'house', data: h.toJson()),
+    for (final l in locations)
+      l.exportID.toLowerCase(): (kind: 'location', data: l.toJson()),
+    for (final c in containers)
+      c.exportID.toLowerCase(): (kind: 'container', data: c.toJson()),
+    for (final i in items)
+      i.exportID.toLowerCase(): (kind: 'item', data: i.toJson()),
+    for (final p in photos)
+      p.exportID.toLowerCase(): (kind: 'photo', data: p.toJson()),
+    for (final h in homeLocations)
+      h.exportID.toLowerCase(): (kind: 'homeLocation', data: h.toJson()),
+  };
+
+  /// Adds or replaces a record that came from the server and returns it as
+  /// this app writes it. Call [commit] after a batch.
+  Map<String, Object?> applySyncRecord(String kind, Map<String, dynamic> data) {
+    final id = (data['exportID'] as String).toLowerCase();
+    Map<String, Object?> put<T>(
+      List<T> list,
+      T value,
+      String Function(T) key,
+      Map<String, Object?> Function(T) toJson,
+    ) {
+      final index = list.indexWhere((e) => key(e).toLowerCase() == id);
+      index < 0 ? list.add(value) : list[index] = value;
+      return toJson(value);
+    }
+
+    return switch (kind) {
+      'house' => put(
+        houses,
+        House.fromJson(data),
+        (h) => h.exportID,
+        (h) => h.toJson(),
+      ),
+      'location' => put(
+        locations,
+        Location.fromJson(data),
+        (l) => l.exportID,
+        (l) => l.toJson(),
+      ),
+      'container' => put(
+        containers,
+        StorageContainer.fromJson(data),
+        (c) => c.exportID,
+        (c) => c.toJson(),
+      ),
+      'item' => put(
+        items,
+        Item.fromJson(data, const {}),
+        (i) => i.exportID,
+        (i) => i.toJson(),
+      ),
+      'photo' => put(
+        photos,
+        Photo.fromJson(data),
+        (p) => p.exportID,
+        (p) => p.toJson(),
+      ),
+      'homeLocation' => put(
+        homeLocations,
+        HomeLocation.fromJson(data),
+        (h) => h.exportID,
+        (h) => h.toJson(),
+      ),
+      _ => throw FormatException('Unknown record kind $kind'),
+    };
+  }
+
+  /// Removes a record the server says was deleted. Call [commit] after a batch.
+  Future<void> removeSyncRecord(String kind, String id) async {
+    bool same(String exportID) => exportID.toLowerCase() == id;
+    switch (kind) {
+      case 'house':
+        houses.removeWhere((h) => same(h.exportID));
+      case 'location':
+        locations.removeWhere((l) => same(l.exportID));
+      case 'container':
+        containers.removeWhere((c) => same(c.exportID));
+      case 'item':
+        items.removeWhere((i) => same(i.exportID));
+      case 'photo':
+        for (final photo in photos.where((p) => same(p.exportID)).toList()) {
+          photos.remove(photo);
+          final file = photoFile(photo);
+          if (await file.exists()) await file.delete();
+        }
+      case 'homeLocation':
+        homeLocations.removeWhere((h) => same(h.exportID));
+    }
+  }
+
+  /// Empties the inventory, for replacing it with the server's copy.
+  Future<void> clearForSync() async {
+    houses = [];
+    locations = [];
+    containers = [];
+    items = [];
+    photos = [];
+    homeLocations = [];
+    if (await _photosDir.exists()) await _photosDir.delete(recursive: true);
+    await _photosDir.create(recursive: true);
+  }
+
+  File photoFileNamed(String filename) => File('${_photosDir.path}/$filename');
 }
 
 /// Makes the store available to every screen and rebuilds them when it changes.

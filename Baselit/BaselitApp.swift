@@ -12,6 +12,7 @@ import SwiftData
 struct BaselitApp: App {
     let modelContainer: ModelContainer
     @State private var printQueue = PrintQueueService()
+    @State private var sync = SyncService()
 
     init() {
         let schema = Schema([
@@ -59,6 +60,7 @@ struct BaselitApp: App {
         WindowGroup {
             ContentView()
                 .environment(printQueue)
+                .environment(sync)
         }
         .modelContainer(modelContainer)
     }

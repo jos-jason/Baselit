@@ -5,6 +5,10 @@ import SwiftData
 /// at a specific House. Each item/container can have one HomeLocation per House.
 @Model
 final class HomeLocation {
+    /// Permanent UUID string shared by every device this record syncs to,
+    /// and used as its exportID in backups.
+    var syncID: String = UUID().uuidString
+
     var createdAt: Date
     var updatedAt: Date
 

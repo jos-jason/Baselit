@@ -6,6 +6,9 @@ enum AppTab: String, Hashable {
 
 struct ContentView: View {
     @State private var selectedTab: AppTab = .search
+    @Environment(SyncService.self) private var sync
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -22,9 +25,14 @@ struct ContentView: View {
                 ItemsTab()
             }
         }
+        .task { sync.start(context: modelContext) }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active { Task { await sync.sync() } }
+        }
     }
 }
 
 #Preview {
     ContentView()
+        .environment(SyncService())
 }

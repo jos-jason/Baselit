@@ -3,6 +3,10 @@ import SwiftData
 
 @Model
 final class Item {
+    /// Permanent UUID string shared by every device this record syncs to,
+    /// and used as its exportID in backups.
+    var syncID: String = UUID().uuidString
+
     var name: String
     var itemDescription: String?
 

@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 
 import 'models.dart';
 import 'store.dart';
+import 'sync.dart';
+import 'sync_settings.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -326,10 +328,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
+    final sync = SyncScope.of(context);
     return BaselitPage(
       title: 'Settings',
       largeTitle: false,
       children: [
+        const SectionHeader('Sync'),
+        GroupCard(
+          children: [
+            ListRow(
+              title: 'PocketBase Sync',
+              leading: const RowIcon(CupertinoIcons.arrow_2_circlepath),
+              subtitle: Text(
+                syncStatus(sync),
+                style: TextStyles.caption(context),
+              ),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SyncSettingsScreen()),
+              ),
+            ),
+          ],
+        ),
         const SectionHeader('Backup'),
         GroupCard(
           separatorIndent: 58,

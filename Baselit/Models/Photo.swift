@@ -3,6 +3,10 @@ import SwiftData
 
 @Model
 final class Photo {
+    /// Permanent UUID string shared by every device this record syncs to,
+    /// and used as its exportID in backups.
+    var syncID: String = UUID().uuidString
+
     @Attribute(.externalStorage) var imageData: Data?
     var caption: String?
     var createdAt: Date

@@ -29,14 +29,16 @@ enum BackupExportService {
         var itemIDMap: [ObjectIdentifier: UUID] = [:]
         var photoIDMap: [ObjectIdentifier: UUID] = [:]
 
-        for house in houses { houseIDMap[ObjectIdentifier(house)] = UUID() }
-        for location in allLocations { locationIDMap[ObjectIdentifier(location)] = UUID() }
-        for container in containers { containerIDMap[ObjectIdentifier(container)] = UUID() }
-        for item in items { itemIDMap[ObjectIdentifier(item)] = UUID() }
-        for photo in photos { photoIDMap[ObjectIdentifier(photo)] = UUID() }
+        // Records keep their sync IDs in backups, so a restored backup still matches the server
+        func id(_ syncID: String) -> UUID { UUID(uuidString: syncID) ?? UUID() }
+        for house in houses { houseIDMap[ObjectIdentifier(house)] = id(house.syncID) }
+        for location in allLocations { locationIDMap[ObjectIdentifier(location)] = id(location.syncID) }
+        for container in containers { containerIDMap[ObjectIdentifier(container)] = id(container.syncID) }
+        for item in items { itemIDMap[ObjectIdentifier(item)] = id(item.syncID) }
+        for photo in photos { photoIDMap[ObjectIdentifier(photo)] = id(photo.syncID) }
 
         var homeLocationIDMap: [ObjectIdentifier: UUID] = [:]
-        for hl in homeLocations { homeLocationIDMap[ObjectIdentifier(hl)] = UUID() }
+        for hl in homeLocations { homeLocationIDMap[ObjectIdentifier(hl)] = id(hl.syncID) }
 
         // 3. Convert to DTOs
         let exportHouses = houses.map { house in

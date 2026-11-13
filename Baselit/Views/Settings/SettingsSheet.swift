@@ -4,6 +4,7 @@ import UIKit
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(PrintQueueService.self) private var printQueue
+    @Environment(SyncService.self) private var sync
     @State private var showBatchLabels = false
     @State private var showPrintQueue = false
     @State private var showExportBackup = false
@@ -14,6 +15,18 @@ struct SettingsSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                Section("Sync") {
+                    NavigationLink {
+                        SyncSettingsView()
+                    } label: {
+                        LabeledContent {
+                            Text(SyncSettingsView.status(of: sync))
+                        } label: {
+                            Label("PocketBase Sync", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                }
+
                 Section("Labels") {
                     Button {
                         showBatchLabels = true
