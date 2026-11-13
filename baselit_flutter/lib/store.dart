@@ -89,6 +89,23 @@ class InventoryStore extends ChangeNotifier {
       _find(containers, id, (c) => c.exportID);
   Item? item(String? id) => _find(items, id, (i) => i.exportID);
 
+  /// Looks up a printed label, like iOS: `baselit:<container|item>:<identifier-with-dashes>`.
+  /// Returns the container or item, null if nothing matches, or throws
+  /// FormatException when the code isn't a Baselit label.
+  Object? lookupQRPayload(String payload) {
+    final parts = payload.trim().split(':');
+    if (parts.length < 3 || parts[0] != 'baselit') {
+      throw const FormatException('This QR code is not a Baselit label.');
+    }
+    final query = parts.sublist(2).join(':').replaceAll('-', ' ').toLowerCase();
+    bool matches(String identifier) => identifier.toLowerCase() == query;
+    return switch (parts[1]) {
+      'container' => containers.where((c) => matches(c.identifier)).firstOrNull,
+      'item' => items.where((i) => matches(i.identifier)).firstOrNull,
+      _ => throw const FormatException('This QR code is not a Baselit label.'),
+    };
+  }
+
   static T? _find<T>(List<T> list, String? id, String Function(T) key) {
     if (id == null) return null;
     for (final element in list) {

@@ -7,6 +7,7 @@ import 'bubble_grid.dart';
 import 'details.dart';
 import 'forms.dart';
 import 'models.dart';
+import 'scanner.dart';
 import 'store.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -147,6 +148,39 @@ class _SearchTabState extends State<SearchTab> {
     ),
   );
 
+  /// Scans a printed label and opens its container or item, like iOS.
+  Future<void> _scan(InventoryStore store) async {
+    final code = await scanQRCode(context);
+    if (code == null || !mounted) return;
+    String? error;
+    try {
+      switch (store.lookupQRPayload(code)) {
+        case StorageContainer c:
+          push(context, ContainerDetailScreen(container: c));
+        case Item i:
+          push(context, ItemDetailScreen(item: i));
+        default:
+          error = 'No matching container or item found for this QR code.';
+      }
+    } on FormatException catch (e) {
+      error = e.message;
+    }
+    if (error == null || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Scan Error'),
+        content: Text(error!),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Shown when the house filter hides everything, with a way back to all houses.
   Widget _filteredEmpty(House house) => Column(
     children: [
@@ -172,6 +206,10 @@ class _SearchTabState extends State<SearchTab> {
     final house = store.house(_houseID);
     final toolbar = (
       leading: [
+        RoundButton(
+          icon: CupertinoIcons.qrcode_viewfinder,
+          onPressed: () => _scan(store),
+        ),
         RoundButton(
           icon: CupertinoIcons.gear,
           onPressed: () => push(context, const SettingsScreen()),
