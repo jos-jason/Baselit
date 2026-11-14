@@ -3,9 +3,20 @@
 A simpler Flutter companion to the iOS app. It stores data in the same layout
 as an iOS backup (`baselit_backup.json` plus a `photos/` folder), so you move
 your inventory between devices by exporting a backup on one and importing it
-on the other (Settings, from the gear on the Search tab). It can also sync with
-the iOS app through your own PocketBase server; see
-[pocketbase/README.md](../pocketbase/README.md).
+on the other (Settings, from the gear on the Search tab).
+
+## Sync
+
+Every Baselit app (this one and the iOS app) can keep the same inventory,
+photos included, through the NAS's PocketBase server, the same way Inkpad does.
+It uses the [nas-sync](https://github.com/jos-jason/nas-sync) package and its
+shared `sync_items` collection, under app `baselit`, so the server needs no
+setup of its own. In Settings, open **NAS Sync** and sign in with the server
+address and your NAS account; the device needs Tailscale on to reach it.
+
+Sign in first on the device with your full inventory. A device that already
+has its own copy then asks whether to **Use Server's** inventory or **Merge**;
+pick Use Server's if it was set up from a backup of the same inventory.
 
 The look follows the iOS app: grouped gray background, white cards with 26pt
 corners, gray icon tiles, Cupertino icons, a black and white accent, and a

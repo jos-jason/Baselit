@@ -337,7 +337,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         GroupCard(
           children: [
             ListRow(
-              title: 'PocketBase Sync',
+              title: 'NAS Sync',
               leading: const RowIcon(CupertinoIcons.arrow_2_circlepath),
               subtitle: Text(
                 syncStatus(sync),

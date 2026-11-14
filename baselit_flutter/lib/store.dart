@@ -590,6 +590,26 @@ class InventoryStore extends ChangeNotifier {
       h.exportID.toLowerCase(): (kind: 'homeLocation', data: h.toJson()),
   };
 
+  /// One record as its backup JSON, or null if it isn't here.
+  Map<String, Object?>? syncRecord(String kind, String id) {
+    T? find<T>(List<T> list, String Function(T) key) {
+      for (final e in list) {
+        if (key(e).toLowerCase() == id) return e;
+      }
+      return null;
+    }
+
+    return switch (kind) {
+      'house' => find(houses, (h) => h.exportID)?.toJson(),
+      'location' => find(locations, (l) => l.exportID)?.toJson(),
+      'container' => find(containers, (c) => c.exportID)?.toJson(),
+      'item' => find(items, (i) => i.exportID)?.toJson(),
+      'photo' => find(photos, (p) => p.exportID)?.toJson(),
+      'homeLocation' => find(homeLocations, (h) => h.exportID)?.toJson(),
+      _ => null,
+    };
+  }
+
   /// Adds or replaces a record that came from the server and returns it as
   /// this app writes it. Call [commit] after a batch.
   Map<String, Object?> applySyncRecord(String kind, Map<String, dynamic> data) {

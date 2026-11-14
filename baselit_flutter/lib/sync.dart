@@ -1,24 +1,24 @@
-// Syncs the inventory with the user's PocketBase server, the same way the iOS
-// app does. Every record lives in one `baselit_records` collection as its
-// backup JSON (see pocketbase/pb_migrations). Each sync pulls rows changed
-// since the last pull, then pushes local records whose JSON differs from what
-// was last synced. Records that vanished locally become `deleted` rows. When
-// both sides changed the same record, the newer `updatedAt` wins.
+// Syncs the inventory with the NAS through github.com/jos-jason/nas-sync,
+// the same way Inkpad does: rows in the shared `sync_items` collection, filed
+// under app `baselit`. Each house, location, container, item, photo, and home
+// location is one item (kind + lowercase UUID key) whose data is its backup
+// JSON; photos also carry their image as the blob. The iOS app follows the
+// same rules (Baselit/Services/SyncService.swift).
 //
-// For each record, a device remembers its own JSON and the server's `updated`
-// time as of the last sync. Comparing server times (not JSON) tells whether
-// the server changed, since iOS and Flutter write slightly different JSON.
+// The store has no per-record change hooks, so before each sync this compares
+// every record's JSON with what it was last time and tells the engine about
+// whatever changed or vanished.
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
+import 'package:nas_sync/nas_sync.dart';
 
 import 'store.dart';
-
-const _collection = 'baselit_records';
 
 /// What to do the first time a device with its own inventory signs in to a
 /// server that already has one.
@@ -32,83 +32,113 @@ class SyncException implements Exception {
 }
 
 class SyncService extends ChangeNotifier {
-  SyncService(this.store, {http.Client? client})
-    : _http = client ?? http.Client();
+  SyncService(this.store, {http.Client? httpClient, String? device})
+    : _http = httpClient ?? http.Client(),
+      device = device ?? _deviceName();
+
+  /// The app name the server files Baselit's items under.
+  static const app = 'baselit';
 
   final InventoryStore store;
   final http.Client _http;
+  final String device;
+  late final NasSync _engine = NasSync(
+    client: PbClient('http://localhost/', httpClient: _http),
+    app: app,
+    device: device,
+    source: _InventorySource(this),
+    storage: _EngineStateFile(this),
+  );
 
   String? serverURL;
-  String? email;
-  String? _token;
-  String? _userID;
-  String? _lastPull;
-
-  /// Each record's canonical local JSON and server `updated` time as of the
-  /// last sync, keyed by row ID.
-  Map<String, ({String local, String server})> _known = {};
-
   bool syncing = false;
   String? lastError;
   DateTime? lastSynced;
 
+  /// Each record's JSON as of the last sync, and when this device saw it change.
+  Map<String, ({String json, int at})> _seen = {};
+
   bool _again = false;
-  bool _applying = false;
+  bool _commitPending = false;
+  bool _committing = false;
   Timer? _debounce;
   Timer? _periodic;
   AppLifecycleListener? _lifecycle;
 
-  bool get signedIn => _token != null;
+  bool get signedIn => _engine.client.auth != null;
+  String? get email => _engine.client.auth?.email;
 
-  File get _stateFile => File('${store.appFolder.path}/sync.json');
+  File get _settingsFile => File('${store.appFolder.path}/sync.json');
+  File get _engineFile => File('${store.appFolder.path}/sync_state.json');
 
-  // MARK: - State
+  static String _deviceName() {
+    try {
+      return '${Platform.operatingSystem} ${Platform.localHostname}';
+    } catch (_) {
+      return Platform.operatingSystem;
+    }
+  }
+
+  // MARK: - Settings
 
   Future<void> load() async {
-    if (await _stateFile.exists()) {
-      final json = jsonDecode(await _stateFile.readAsString());
+    if (await _settingsFile.exists()) {
+      final json = jsonDecode(await _settingsFile.readAsString());
       serverURL = json['serverURL'];
-      email = json['email'];
-      _token = json['token'];
-      _userID = json['userID'];
-      _lastPull = json['lastPull'];
-      _known = {
-        for (final MapEntry(:key, :value) in Map<String, dynamic>.from(
-          json['known'] ?? {},
-        ).entries)
-          key: (local: value[0] as String, server: value[1] as String),
-      };
+      final auth = json['auth'];
+      if (serverURL != null && auth is Map) {
+        _engine.client = PbClient(
+          serverURL!,
+          httpClient: _http,
+          auth: PbAuth.fromJson(Map<String, dynamic>.from(auth)),
+        );
+      }
       final last = json['lastSynced'];
       lastSynced = last == null ? null : DateTime.parse(last);
+      _seen = {
+        for (final MapEntry(:key, :value) in Map<String, dynamic>.from(
+          json['seen'] ?? {},
+        ).entries)
+          key: (json: value[0] as String, at: value[1] as int),
+      };
     }
     notifyListeners();
   }
 
-  Future<void> _saveState() async {
-    final temp = File('${_stateFile.path}.tmp');
+  /// The login is kept in this app's own data folder; the token lasts 90 days
+  /// and is refreshed on every start.
+  Future<void> _saveSettings() async {
+    final temp = File('${_settingsFile.path}.tmp');
     await temp.writeAsString(
       jsonEncode({
         'serverURL': serverURL,
-        'email': email,
-        'token': _token,
-        'userID': _userID,
-        'lastPull': _lastPull,
+        'auth': _engine.client.auth?.toJson(),
         'lastSynced': lastSynced?.toIso8601String(),
-        'known': {
-          for (final MapEntry(:key, :value) in _known.entries)
-            key: [value.local, value.server],
+        'seen': {
+          for (final MapEntry(:key, :value) in _seen.entries)
+            key: [value.json, value.at],
         },
       }),
     );
-    await temp.rename(_stateFile.path);
+    await temp.rename(_settingsFile.path);
   }
 
-  /// Syncs shortly after each local change, every minute, and when the app comes back.
-  void start() {
+  /// Restores a saved login, then syncs shortly after each local change,
+  /// every five minutes, and when the app comes back (like Inkpad).
+  Future<void> start() async {
     store.addListener(_onStoreChanged);
-    _periodic = Timer.periodic(const Duration(minutes: 1), (_) => sync());
+    _periodic = Timer.periodic(const Duration(minutes: 5), (_) => sync());
     _lifecycle = AppLifecycleListener(onResume: sync);
-    sync();
+    if (!signedIn) return;
+    try {
+      await _engine.client.refresh();
+      await _saveSettings();
+    } on PbException catch (e) {
+      if (e.isAuth) return _lostLogin();
+    } catch (_) {
+      // Offline: keep the saved login and try again on the next sync.
+    }
+    await sync();
   }
 
   @override
@@ -121,181 +151,156 @@ class SyncService extends ChangeNotifier {
   }
 
   void _onStoreChanged() {
-    if (_applying || !signedIn) return;
+    if (_committing || !signedIn) return;
     _debounce?.cancel();
-    _debounce = Timer(const Duration(seconds: 2), sync);
+    _debounce = Timer(const Duration(seconds: 5), sync);
   }
 
   // MARK: - Signing in
 
-  /// Signs in and returns whether this device and the server both already
-  /// hold an inventory, in which case the caller asks which [FirstSync] to use.
+  /// Signs in with an account from the NAS admin page and returns whether
+  /// this device and the server both already hold a Baselit inventory, in
+  /// which case the caller asks which [FirstSync] to use.
   Future<bool> signIn(String url, String email, String password) async {
     final base = url.trim().replaceAll(RegExp(r'/+$'), '');
     final uri = Uri.tryParse(base);
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
       throw SyncException(
-        'Enter the full server address, like https://pb.example.com',
+        'Enter the full server address, like https://nas.tailnet.ts.net:8443',
       );
     }
-    final response = await _send(
-      'POST',
-      '/api/collections/users/auth-with-password',
-      base: base,
-      body: {'identity': email.trim(), 'password': password},
-      authorized: false,
-    );
+    final client = PbClient(base, httpClient: _http);
+    try {
+      await client.signIn(email.trim(), password);
+    } on PbException catch (e) {
+      throw SyncException(e.message);
+    } catch (_) {
+      throw SyncException('Can\'t reach the server. Is Tailscale on?');
+    }
     serverURL = base;
-    this.email = email.trim();
-    _token = response['token'];
-    _userID = response['record']['id'];
-    _lastPull = null;
-    _known = {};
+    _engine.client = client;
     lastError = null;
-    await _saveState();
+    await _saveSettings();
     notifyListeners();
+    return await _serverHasData() && store.syncRecords().isNotEmpty;
+  }
 
-    final remote = await _send(
-      'GET',
-      '/api/collections/$_collection/records?perPage=1&skipTotal=1&filter=${Uri.encodeQueryComponent('deleted = false')}',
+  Future<bool> _serverHasData() async {
+    final client = _engine.client;
+    final url = client.base
+        .resolve('api/collections/${PbClient.collection}/records')
+        .replace(
+          queryParameters: {
+            'filter': 'app = "$app" && deleted = false',
+            'perPage': '1',
+            'skipTotal': '1',
+          },
+        );
+    final response = await _http.get(
+      url,
+      headers: {'Authorization': client.auth!.token},
     );
-    final serverHasData = (remote['items'] as List).isNotEmpty;
-    return serverHasData && store.syncRecords().isNotEmpty;
+    if (response.statusCode != 200) return false;
+    return (jsonDecode(response.body)['items'] as List).isNotEmpty;
   }
 
   /// Runs the first sync after signing in.
   Future<void> firstSync(FirstSync choice) async {
     if (choice == FirstSync.useServer) {
-      _applying = true;
       await store.clearForSync();
-      await store.commit();
-      _applying = false;
+      _seen = {};
+      await _commit();
     }
     await sync();
   }
 
+  /// Stops syncing on this device. The inventory stays here and on the server.
   Future<void> signOut() async {
-    _token = null;
-    _userID = null;
-    _lastPull = null;
-    _known = {};
-    lastSynced = null;
+    _engine.client.auth = null;
     lastError = null;
-    await _saveState();
+    await _saveSettings();
+    notifyListeners();
+  }
+
+  Future<void> _lostLogin() async {
+    await signOut();
+    lastError =
+        'Your sign-in expired or was removed. Sign in again to keep syncing.';
     notifyListeners();
   }
 
   // MARK: - Syncing
 
   Future<void> sync() async {
-    if (!signedIn) return;
+    if (!signedIn || !store.loaded) return;
+    _debounce?.cancel();
     if (syncing) {
       _again = true;
       return;
     }
     syncing = true;
     notifyListeners();
+    var lostLogin = false;
     try {
-      do {
-        _again = false;
-        await _syncOnce();
-      } while (_again);
-      lastError = null;
+      await _noteLocalChanges();
+      final report = await _engine.sync();
       lastSynced = DateTime.now();
-    } on SocketException {
-      lastError = 'Can\'t reach the server.';
-    } on http.ClientException {
-      lastError = 'Can\'t reach the server.';
-    } catch (error) {
-      lastError = error.toString();
+      lastError = report.problems.isEmpty
+          ? null
+          : 'Some changes couldn\'t be sent: ${report.problems.join('; ')}';
+    } on PbException catch (e) {
+      lostLogin = e.isAuth;
+      lastError = e.message;
+    } on StateError {
+      lastError = null;
+    } catch (e) {
+      // Socket, TLS and timeout errors: most likely Tailscale is off or the NAS is down.
+      lastError = 'Can\'t reach the server. Is Tailscale on?';
     } finally {
+      if (_commitPending) await _commit();
       syncing = false;
-      _applying = false;
-      await _saveState();
+      await _saveSettings();
       notifyListeners();
     }
+    if (lostLogin) {
+      await _lostLogin();
+    } else if (_again) {
+      _again = false;
+      await sync();
+    }
   }
 
-  Future<void> _syncOnce() async {
-    await _refreshToken();
-    final local = store.syncRecords();
-    var newestPull = _lastPull;
-    var changedLocally = false;
-    _applying = true;
-
-    for (final row in await _pullChanges()) {
-      final id = row['id'] as String;
-      final kind = row['kind'] as String;
-      final updated = row['updated'] as String;
-      if (newestPull == null || updated.compareTo(newestPull) > 0) {
-        newestPull = updated;
-      }
-      final known = _known[id];
-      // Unchanged on the server since this device last synced it (often our own push)
-      if (known != null && known.server == updated) continue;
-
-      final mine = local[id];
-      final remoteData = row['data'] is Map
-          ? Map<String, dynamic>.from(row['data'])
-          : null;
-      final localChanged = mine == null
-          ? known != null
-          : _canonical(mine.data) != known?.local;
-      final localWins =
-          mine != null &&
-          localChanged &&
-          remoteData != null &&
-          _stamp(mine.data).compareTo(_stamp(remoteData)) > 0;
-
-      if (localWins) {
-        // Keep this device's version; it's pushed below over the server's
-        _known[id] = (local: known?.local ?? '', server: updated);
-        continue;
-      }
-      if (row['deleted'] == true || remoteData == null) {
-        if (mine != null) {
-          await store.removeSyncRecord(kind, id);
-          local.remove(id);
-          changedLocally = true;
-        }
-        _known.remove(id);
-        continue;
-      }
-
-      if (kind == 'photo') await _downloadPhoto(row, remoteData);
-      final applied = store.applySyncRecord(kind, remoteData);
-      local[id] = (kind: kind, data: applied);
-      _known[id] = (local: _canonical(applied), server: updated);
-      changedLocally = true;
-    }
-
-    if (changedLocally) await store.commit();
-    _applying = false;
-    _lastPull = newestPull;
-    await _saveState();
-
-    for (final MapEntry(key: id, value: record) in local.entries) {
+  /// Tells the engine about every record that changed or vanished since the
+  /// last sync, stamped with now so newer edits win.
+  Future<void> _noteLocalChanges() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final records = store.syncRecords();
+    for (final MapEntry(key: id, value: record) in records.entries) {
+      final key = '${record.kind}/$id';
       final json = _canonical(record.data);
-      final known = _known[id];
-      if (known?.local == json) continue;
-      final server = await _push(
-        id,
-        record.kind,
-        record.data,
-        isNew: known == null,
-      );
-      _known[id] = (local: json, server: server);
+      if (_seen[key]?.json == json) continue;
+      _seen[key] = (json: json, at: now);
+      await _engine.markChanged(record.kind, id, modified: now);
     }
-    for (final id
-        in _known.keys.where((id) => !local.containsKey(id)).toList()) {
-      await _markDeleted(id);
-      _known.remove(id);
+    for (final key in _seen.keys.toList()) {
+      final slash = key.indexOf('/');
+      final (kind, id) = (key.substring(0, slash), key.substring(slash + 1));
+      if (records.containsKey(id)) continue;
+      _seen.remove(key);
+      await _engine.markChanged(kind, id, deleted: true, modified: now);
     }
+    await _saveSettings();
   }
 
-  /// The sortable time a record last changed, for settling conflicts.
-  static String _stamp(Map<String, dynamic> data) =>
-      (data['updatedAt'] ?? data['createdAt'] ?? '') as String;
+  Future<void> _commit() async {
+    _committing = true;
+    try {
+      await store.commit();
+    } finally {
+      _committing = false;
+      _commitPending = false;
+    }
+  }
 
   /// JSON with sorted keys, so the same record always gives the same text.
   static String _canonical(Object? value) {
@@ -309,173 +314,74 @@ class SyncService extends ChangeNotifier {
     };
     return jsonEncode(sort(value));
   }
+}
 
-  Future<List<Map<String, dynamic>>> _pullChanges() async {
-    final rows = <Map<String, dynamic>>[];
-    for (var page = 1; ; page++) {
-      final filter = _lastPull == null ? '' : 'updated >= "$_lastPull"';
-      final response = await _send(
-        'GET',
-        '/api/collections/$_collection/records?page=$page&perPage=500&skipTotal=1'
-            '&sort=updated,id&fields=id,kind,data,deleted,photo,updated'
-            '${filter.isEmpty ? '' : '&filter=${Uri.encodeQueryComponent(filter)}'}',
-      );
-      final items = (response['items'] as List).cast<Map<String, dynamic>>();
-      rows.addAll(items);
-      if (items.length < 500) return rows;
+/// The inventory as the engine sees it.
+class _InventorySource extends SyncSource {
+  _InventorySource(this.sync);
+  final SyncService sync;
+  InventoryStore get store => sync.store;
+
+  @override
+  Future<SyncItem?> read(String kind, String key) async {
+    final data = store.syncRecord(kind, key);
+    if (data == null) return null;
+    Uint8List? blob;
+    if (kind == 'photo') {
+      final file = store.photoFileNamed(data['filename'] as String);
+      if (await file.exists()) blob = await file.readAsBytes();
     }
-  }
-
-  Future<void> _downloadPhoto(
-    Map<String, dynamic> row,
-    Map<String, dynamic> data,
-  ) async {
-    final remoteName = row['photo'] as String?;
-    final file = store.photoFileNamed(data['filename'] as String);
-    if (remoteName == null || remoteName.isEmpty || await file.exists()) return;
-    final fileToken = (await _send('POST', '/api/files/token'))['token'];
-    final response = await _http.get(
-      Uri.parse(
-        '$serverURL/api/files/$_collection/${row['id']}/$remoteName?token=$fileToken',
-      ),
+    final stamp = DateTime.tryParse(
+      (data['updatedAt'] ?? data['createdAt'] ?? '') as String,
+    )?.millisecondsSinceEpoch;
+    final seen = sync._seen['$kind/$key']?.at ?? 0;
+    return SyncItem(
+      kind: kind,
+      key: key,
+      modified: stamp != null && stamp > seen ? stamp : seen,
+      data: data.cast<String, dynamic>(),
+      blob: blob,
     );
-    if (response.statusCode == 200) {
-      await file.writeAsBytes(response.bodyBytes);
-    } else if (response.statusCode != 404) {
-      // Stop before this pull is recorded, so the photo is fetched again next time
-      throw SyncException(
-        'Couldn\'t download a photo (${response.statusCode}).',
-      );
-    }
   }
 
-  /// Creates or updates the row and returns the server's new `updated` time.
-  Future<String> _push(
-    String id,
-    String kind,
-    Map<String, Object?> data, {
-    required bool isNew,
-  }) async {
-    final fields = {'kind': kind, 'data': data, 'deleted': false};
-    final photo = kind == 'photo'
-        ? store.photoFileNamed(data['filename'] as String)
-        : null;
-    final upload = isNew && photo != null && await photo.exists();
-
-    if (!isNew) {
-      final updated = await _sendOrNull(
-        'PATCH',
-        '/api/collections/$_collection/records/$id',
-        body: fields,
-      );
-      if (updated != null) return updated['updated'];
-    }
-    final create = {'id': id, 'owner': _userID, ...fields};
-    if (upload) {
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$serverURL/api/collections/$_collection/records'),
-      )..headers['Authorization'] = _token!;
-      for (final MapEntry(:key, :value) in create.entries) {
-        request.fields[key] = value is String ? value : jsonEncode(value);
+  @override
+  Future<void> apply(SyncItem item) async {
+    final key = '${item.kind}/${item.key}';
+    if (item.deleted || item.data == null) {
+      await store.removeSyncRecord(item.kind, item.key);
+      sync._seen.remove(key);
+    } else {
+      final applied = store.applySyncRecord(item.kind, item.data!);
+      if (item.kind == 'photo' && item.blob != null) {
+        await store
+            .photoFileNamed(item.data!['filename'] as String)
+            .writeAsBytes(item.blob!);
       }
-      request.files.add(await http.MultipartFile.fromPath('photo', photo.path));
-      final response = await http.Response.fromStream(
-        await _http.send(request),
-      );
-      _check(response);
-      return jsonDecode(response.body)['updated'];
-    }
-    final created = await _sendOrNull(
-      'POST',
-      '/api/collections/$_collection/records',
-      body: create,
-    );
-    // Already on the server (synced from elsewhere before this device knew it)
-    return (created ??
-        await _send(
-          'PATCH',
-          '/api/collections/$_collection/records/$id',
-          body: fields,
-        ))['updated'];
-  }
-
-  Future<void> _markDeleted(String id) => _sendOrNull(
-    'PATCH',
-    '/api/collections/$_collection/records/$id',
-    body: {'deleted': true},
-  );
-
-  Future<void> _refreshToken() async {
-    final response = await _sendOrNull(
-      'POST',
-      '/api/collections/users/auth-refresh',
-    );
-    if (response == null) {
-      await signOut();
-      throw SyncException(
-        'Signed out. Sign in to your server again to keep syncing.',
+      sync._seen[key] = (
+        json: SyncService._canonical(applied),
+        at: item.modified,
       );
     }
-    _token = response['token'];
-  }
-
-  // MARK: - HTTP
-
-  /// Sends a request and returns the JSON body, or null for 400 and 404
-  /// (a row that doesn't exist yet, or one that already does).
-  Future<Map<String, dynamic>?> _sendOrNull(
-    String method,
-    String path, {
-    Map<String, Object?>? body,
-  }) async {
-    try {
-      return await _send(method, path, body: body);
-    } on _StatusException catch (e) {
-      if (e.status == 400 || e.status == 401 || e.status == 404) return null;
-      rethrow;
-    }
-  }
-
-  Future<Map<String, dynamic>> _send(
-    String method,
-    String path, {
-    String? base,
-    Map<String, Object?>? body,
-    bool authorized = true,
-  }) async {
-    final request = http.Request(
-      method,
-      Uri.parse('${base ?? serverURL}$path'),
-    );
-    if (authorized && _token != null) {
-      request.headers['Authorization'] = _token!;
-    }
-    if (body != null) {
-      request.headers['Content-Type'] = 'application/json';
-      request.body = jsonEncode(body);
-    }
-    final response = await http.Response.fromStream(await _http.send(request));
-    _check(response);
-    return response.body.isEmpty
-        ? {}
-        : Map<String, dynamic>.from(jsonDecode(response.body));
-  }
-
-  static void _check(http.Response response) {
-    if (response.statusCode < 300) return;
-    String message = 'Server error ${response.statusCode}';
-    try {
-      final json = jsonDecode(response.body);
-      if (json['message'] is String) message = json['message'];
-    } catch (_) {}
-    throw _StatusException(response.statusCode, message);
+    sync._commitPending = true;
   }
 }
 
-class _StatusException extends SyncException {
-  _StatusException(this.status, super.message);
-  final int status;
+class _EngineStateFile implements SyncStateStorage {
+  _EngineStateFile(this.sync);
+  final SyncService sync;
+
+  @override
+  Future<String?> read() async {
+    final file = sync._engineFile;
+    return await file.exists() ? file.readAsString() : null;
+  }
+
+  @override
+  Future<void> write(String text) async {
+    final temp = File('${sync._engineFile.path}.tmp');
+    await temp.writeAsString(text);
+    await temp.rename(sync._engineFile.path);
+  }
 }
 
 /// Makes sync available to every screen and rebuilds them when its status changes.

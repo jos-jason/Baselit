@@ -1,5 +1,6 @@
-// Syncs two devices through a stand-in PocketBase server and checks that
-// adds, edits, photos, deletions, and conflicts reach the other device.
+// Syncs two devices through a stand-in for the NAS's PocketBase `sync_items`
+// collection and checks that adds, edits, photos, deletions, and conflicts
+// reach the other device.
 
 import 'dart:convert';
 import 'dart:io';
@@ -11,32 +12,37 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-/// Just enough of PocketBase's records API for Baselit sync.
-class FakePocketBase {
+/// Just enough of PocketBase and the `sync_items` collection
+/// (github.com/jos-jason/nas-sync) for Baselit sync.
+class FakeNas {
   final rows = <String, Map<String, dynamic>>{};
   final files = <String, List<int>>{};
   var _clock = 0;
+  var _ids = 0;
 
   String _now() =>
       '2026-01-01 00:00:${(_clock++).toString().padLeft(6, '0')}.000Z';
 
+  Iterable<Map<String, dynamic>> baselit(String kind) =>
+      rows.values.where((r) => r['app'] == 'baselit' && r['kind'] == kind);
+
+  Map<String, dynamic>? byKey(String key) =>
+      rows.values.where((r) => r['item_key'] == key).firstOrNull;
+
   late final client = MockClient((request) async {
     final path = request.url.path;
-    Map<String, dynamic> body() => jsonDecode(request.body);
     http.Response json(Object value, [int status = 200]) =>
         http.Response(jsonEncode(value), status);
     final authorized = request.headers['Authorization'] == 'token-u1';
+    const user = {'id': 'u1', 'email': 'me@example.com'};
 
     if (path == '/api/collections/users/auth-with-password') {
-      return body()['password'] == 'secret'
-          ? json({
-              'token': 'token-u1',
-              'record': {'id': 'u1'},
-            })
+      final body = jsonDecode(request.body);
+      return body['password'] == 'secret'
+          ? json({'token': 'token-u1', 'record': user})
           : json({'message': 'Failed to authenticate.'}, 400);
     }
-    // Protected files take a file token in the URL instead of the auth header
-    if (path.startsWith('/api/files/baselit_records/')) {
+    if (path.startsWith('/api/files/sync_items/')) {
       final id = request.url.pathSegments[3];
       return request.url.queryParameters['token'] == 'ft' && files[id] != null
           ? http.Response.bytes(files[id]!, 200)
@@ -44,19 +50,23 @@ class FakePocketBase {
     }
     if (!authorized) return json({'message': 'Unauthorized'}, 401);
     if (path == '/api/collections/users/auth-refresh') {
-      return json({
-        'token': 'token-u1',
-        'record': {'id': 'u1'},
-      });
+      return json({'token': 'token-u1', 'record': user});
     }
     if (path == '/api/files/token') return json({'token': 'ft'});
 
-    const records = '/api/collections/baselit_records/records';
+    const records = '/api/collections/sync_items/records';
     if (path == records && request.method == 'GET') {
       final filter = request.url.queryParameters['filter'] ?? '';
-      final since = RegExp(r'updated >= "(.+)"').firstMatch(filter)?.group(1);
-      var list = rows.values.toList()
-        ..sort((a, b) => (a['updated'] as String).compareTo(b['updated']));
+      final app = RegExp(r'app = "([^"]+)"').firstMatch(filter)?.group(1);
+      final since = RegExp(r'updated >= "([^"]+)"')
+          .firstMatch(filter)
+          ?.group(1);
+      var list = rows.values.where((r) => r['app'] == app).toList()
+        ..sort(
+          (a, b) => '${a['updated']}${a['id']}'.compareTo(
+            '${b['updated']}${b['id']}',
+          ),
+        );
       if (since != null) {
         list = list
             .where((r) => (r['updated'] as String).compareTo(since) >= 0)
@@ -71,73 +81,108 @@ class FakePocketBase {
         'items': list.skip((page - 1) * perPage).take(perPage).toList(),
       });
     }
-    if (path == records && request.method == 'POST') {
-      final fields = request.headers['content-type']!.startsWith('multipart')
-          ? _multipart(request)
-          : body();
-      final id = fields['id'] as String;
-      if (rows.containsKey(id)) return json({'message': 'id taken'}, 400);
-      if (fields['owner'] != 'u1') return json({'message': 'bad owner'}, 400);
-      rows[id] = {
-        'id': id,
-        'kind': fields['kind'],
-        'data': fields['data'] is String
-            ? jsonDecode(fields['data'])
-            : fields['data'],
-        'deleted': fields['deleted'] == true || fields['deleted'] == 'true',
-        'photo': files.containsKey(id) ? 'photo_abc.jpg' : '',
-        'updated': _now(),
-      };
-      return json(rows[id]!);
-    }
-    if (path.startsWith('$records/') && request.method == 'PATCH') {
+    if (path.startsWith('$records/') && request.method == 'GET') {
       final row = rows[request.url.pathSegments.last];
-      if (row == null) return json({'message': 'Not found'}, 404);
-      row.addAll(body());
+      return row == null ? json({'message': 'Not found'}, 404) : json(row);
+    }
+    if (path.startsWith(records) &&
+        (request.method == 'POST' || request.method == 'PATCH')) {
+      final (fields, blob) = _fields(request);
+      final Map<String, dynamic> row;
+      if (request.method == 'POST') {
+        if (fields['owner'] != 'u1') {
+          return json({'message': 'Failed to create record.'}, 400);
+        }
+        final taken = rows.values.any(
+          (r) =>
+              r['owner'] == 'u1' &&
+              r['app'] == fields['app'] &&
+              r['kind'] == fields['kind'] &&
+              r['item_key'] == fields['item_key'],
+        );
+        if (taken) {
+          return json({
+            'message': 'Failed to create record.',
+            'data': {
+              'item_key': {
+                'code': 'validation_not_unique',
+                'message': 'Value must be unique.',
+              },
+            },
+          }, 400);
+        }
+        final id = 'r${(_ids++).toString().padLeft(14, '0')}';
+        row = rows[id] = {'id': id, 'blob': ''};
+      } else {
+        final existing = rows[request.url.pathSegments.last];
+        if (existing == null) return json({'message': 'Not found'}, 404);
+        row = existing;
+      }
+      final clearsBlob = fields.containsKey('blob');
+      fields.remove('blob');
+      row.addAll(fields);
+      if (blob != null) {
+        files[row['id']] = blob;
+        row['blob'] = 'item_abc.bin';
+      } else if (clearsBlob) {
+        files.remove(row['id']);
+        row['blob'] = '';
+      }
       row['updated'] = _now();
       return json(row);
     }
     return json({'message': 'Unexpected ${request.method} $path'}, 500);
   });
 
-  /// Crude multipart reader: text fields, plus the photo bytes under its row ID.
-  Map<String, dynamic> _multipart(http.Request request) {
+  /// JSON bodies as they are; multipart text fields decoded like PocketBase does.
+  static (Map<String, dynamic>, List<int>?) _fields(http.Request request) {
+    if (!request.headers['content-type']!.startsWith('multipart')) {
+      return (Map<String, dynamic>.from(jsonDecode(request.body)), null);
+    }
     final boundary = request.headers['content-type']!.split('boundary=').last;
     final text = latin1.decode(request.bodyBytes);
     final fields = <String, dynamic>{};
-    List<int>? photo;
+    List<int>? blob;
     for (final part in text.split('--$boundary')) {
       final split = part.indexOf('\r\n\r\n');
       if (split < 0) continue;
       final head = part.substring(0, split);
       final value = part.substring(split + 4, part.length - 2);
       final name = RegExp(r'name="([^"]+)"').firstMatch(head)!.group(1)!;
-      if (name == 'photo') {
-        photo = latin1.encode(value);
-      } else {
-        fields[name] = utf8.decode(latin1.encode(value));
+      if (name == 'blob') {
+        blob = latin1.encode(value);
+        continue;
       }
+      final string = utf8.decode(latin1.encode(value));
+      fields[name] = switch (name) {
+        'modified' => int.parse(string),
+        'deleted' => string == 'true',
+        'data' => jsonDecode(string),
+        _ => string,
+      };
     }
-    if (photo != null) files[fields['id']] = photo;
-    return fields;
+    return (fields, blob);
   }
 }
 
-Future<(InventoryStore, SyncService)> _device(FakePocketBase server) async {
+Future<(InventoryStore, SyncService)> _device(
+  FakeNas server,
+  String name,
+) async {
   final dir = Directory.systemTemp.createTempSync('baselit_sync');
   addTearDown(() => dir.deleteSync(recursive: true));
   final store = InventoryStore();
   await store.load(folder: Directory('${dir.path}/inventory'));
-  final sync = SyncService(store, client: server.client);
+  final sync = SyncService(store, httpClient: server.client, device: name);
   await sync.load();
   return (store, sync);
 }
 
 void main() {
   test('two devices stay in sync', () async {
-    final server = FakePocketBase();
-    final (phone, phoneSync) = await _device(server);
-    final (laptop, laptopSync) = await _device(server);
+    final server = FakeNas();
+    final (phone, phoneSync) = await _device(server, 'phone');
+    final (laptop, laptopSync) = await _device(server, 'laptop');
 
     // The phone has an inventory with a photo and signs in first
     final house = House(name: 'Lake House');
@@ -153,17 +198,24 @@ void main() {
     await phone.commit();
 
     expect(
-      await phoneSync.signIn('http://pb.test/', 'me@example.com', 'secret'),
+      await phoneSync.signIn('http://nas.test/', 'me@example.com', 'secret'),
       isFalse,
     );
     await phoneSync.firstSync(FirstSync.merge);
     expect(phoneSync.lastError, isNull);
     expect(server.rows.length, 4);
-    expect(server.rows[drill.exportID.toLowerCase()]!['kind'], 'item');
+    final row = server.byKey(drill.exportID.toLowerCase())!;
+    expect(
+      [row['app'], row['kind'], row['device'], row['deleted']],
+      ['baselit', 'item', 'phone', false],
+    );
+    expect(row['data']['name'], 'Drill');
+    expect(row['modified'], isA<int>());
+    expect(server.files.values.single, [1, 2, 3, 250]);
 
     // The empty laptop signs in and gets everything, photo file included
     expect(
-      await laptopSync.signIn('http://pb.test', 'me@example.com', 'secret'),
+      await laptopSync.signIn('http://nas.test', 'me@example.com', 'secret'),
       isFalse,
     );
     await laptopSync.firstSync(FirstSync.merge);
@@ -177,9 +229,7 @@ void main() {
     ]);
 
     // An edit on the laptop reaches the phone
-    laptop.items.single
-      ..brand = 'Milwaukee'
-      ..updatedAt = DateTime.now().add(const Duration(seconds: 5));
+    laptop.items.single.brand = 'Milwaukee';
     await laptop.commit();
     await laptopSync.sync();
     await phoneSync.sync();
@@ -193,19 +243,16 @@ void main() {
     expect(laptop.items, isEmpty);
     expect(laptop.photos, isEmpty);
     expect(await laptopPhoto.exists(), isFalse);
-    expect(server.rows[drill.exportID.toLowerCase()]!['deleted'], isTrue);
+    expect(server.byKey(drill.exportID.toLowerCase())!['deleted'], isTrue);
 
-    // Both rename the garage; the later edit wins on both devices
-    final soon = DateTime.now().add(const Duration(minutes: 1));
-    phone.locations.single
-      ..name = 'Shop'
-      ..updatedAt = soon;
-    laptop.locations.single
-      ..name = 'Workshop'
-      ..updatedAt = soon.add(const Duration(minutes: 1));
+    // Both rename the garage before syncing; the later edit wins on both devices
+    phone.locations.single.name = 'Shop';
     await phone.commit();
-    await laptop.commit();
     await phoneSync.sync();
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    laptop.locations.single.name = 'Workshop';
+    await laptop.commit();
+    // The laptop hadn't seen the phone's rename yet, so this is a conflict
     await laptopSync.sync();
     await phoneSync.sync();
     expect(phone.locations.single.name, 'Workshop');
@@ -219,43 +266,74 @@ void main() {
   });
 
   test('a device can replace its inventory with the server\'s', () async {
-    final server = FakePocketBase();
-    final (phone, phoneSync) = await _device(server);
-    final (tablet, tabletSync) = await _device(server);
+    final server = FakeNas();
+    final (phone, phoneSync) = await _device(server, 'phone');
+    final (tablet, tabletSync) = await _device(server, 'tablet');
     phone.houses = [House(name: 'Home')];
     await phone.commit();
-    await phoneSync.signIn('http://pb.test', 'me@example.com', 'secret');
+    await phoneSync.signIn('http://nas.test', 'me@example.com', 'secret');
     await phoneSync.firstSync(FirstSync.merge);
 
     tablet.houses = [House(name: 'Old Copy')];
     await tablet.commit();
     expect(
-      await tabletSync.signIn('http://pb.test', 'me@example.com', 'secret'),
+      await tabletSync.signIn('http://nas.test', 'me@example.com', 'secret'),
       isTrue,
     );
     await tabletSync.firstSync(FirstSync.useServer);
     expect(tablet.houses.map((h) => h.name), ['Home']);
-    // The replaced house isn't deleted from the server or the phone
+    // The replaced house never reaches the server or the phone
     await phoneSync.sync();
     expect(phone.houses.map((h) => h.name), ['Home']);
     expect(server.rows.length, 1);
   });
 
+  test('other apps\' rows are left alone', () async {
+    final server = FakeNas();
+    server.rows['inkpad1'] = {
+      'id': 'inkpad1',
+      'owner': 'u1',
+      'app': 'inkpad',
+      'kind': 'drawing',
+      'item_key': 'd1',
+      'modified': 1,
+      'deleted': false,
+      'data': {'name': 'Sketch'},
+      'blob': '',
+      'updated': '2026-01-01 00:00:000000.000Z',
+    };
+    final (store, sync) = await _device(server, 'phone');
+    store.houses = [House(name: 'Home')];
+    await store.commit();
+    await sync.signIn('http://nas.test', 'me@example.com', 'secret');
+    await sync.firstSync(FirstSync.merge);
+    expect(store.houses.length, 1);
+    expect(server.rows['inkpad1']!['updated'], '2026-01-01 00:00:000000.000Z');
+    expect(server.baselit('house').length, 1);
+  });
+
   test(
     'records written by iOS settle without echoing or coming back',
     () async {
-      final server = FakePocketBase();
-      final (laptop, sync) = await _device(server);
-      await sync.signIn('http://pb.test', 'me@example.com', 'secret');
+      final server = FakeNas();
+      final (laptop, sync) = await _device(server, 'laptop');
+      await sync.signIn('http://nas.test', 'me@example.com', 'secret');
       await sync.firstSync(FirstSync.merge);
 
       // iOS writes every key, including an empty tag list Flutter leaves out
-      const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
-      server.rows[id] = {
-        'id': id,
+      const key = '0f8fad5b-d9cb-469f-a165-70867728950e';
+      server.rows['ios1'] = {
+        'id': 'ios1',
+        'owner': 'u1',
+        'app': 'baselit',
         'kind': 'item',
+        'item_key': key,
+        'modified': 1762000000000,
+        'deleted': false,
+        'device': 'iPhone',
+        'blob': '',
         'data': {
-          'exportID': id.toUpperCase(),
+          'exportID': key.toUpperCase(),
           'name': 'Lantern',
           'quantity': 1,
           'identifier': 'Calm Otter',
@@ -263,27 +341,25 @@ void main() {
           'updatedAt': '2026-11-01T10:00:00Z',
           'tagExportIDs': <String>[],
         },
-        'deleted': false,
-        'photo': '',
         'updated': '2026-01-01 00:00:000500.000Z',
       };
       await sync.sync();
       expect(laptop.items.single.name, 'Lantern');
       await sync.sync();
-      expect(server.rows[id]!['updated'], '2026-01-01 00:00:000500.000Z');
+      expect(server.rows['ios1']!['updated'], '2026-01-01 00:00:000500.000Z');
 
       await laptop.deleteItem(laptop.items.single);
       await sync.sync();
       await sync.sync();
       expect(laptop.items, isEmpty);
-      expect(server.rows[id]!['deleted'], isTrue);
+      expect(server.rows['ios1']!['deleted'], isTrue);
     },
   );
 
   test('a wrong password shows the server\'s message', () async {
-    final (_, sync) = await _device(FakePocketBase());
+    final (_, sync) = await _device(FakeNas(), 'phone');
     await expectLater(
-      sync.signIn('http://pb.test', 'me@example.com', 'nope'),
+      sync.signIn('http://nas.test', 'me@example.com', 'nope'),
       throwsA(predicate((e) => '$e' == 'Failed to authenticate.')),
     );
     expect(sync.signedIn, isFalse);

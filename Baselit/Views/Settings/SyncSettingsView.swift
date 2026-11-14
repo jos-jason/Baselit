@@ -39,12 +39,12 @@ struct SyncSettingsView: View {
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                     }
                 } footer: {
-                    Text("Changes sync a few seconds after you make them, every minute while Baselit is open, and when you come back to it. Signing out keeps everything on this device.")
+                    Text("Changes sync a few seconds after you make them, every five minutes while Baselit is open, and when you come back to it. Signing out keeps everything on this device and on the server.")
                 }
             } else {
                 Section {
                     // Verbatim, so the example address isn't styled as a link
-                    TextField(text: $serverURL, prompt: Text(verbatim: "https://pb.example.com")) {
+                    TextField(text: $serverURL, prompt: Text(verbatim: "https://nas.tailnet.ts.net:8443")) {
                         Text("Server Address")
                     }
                         .keyboardType(.URL)
@@ -59,9 +59,9 @@ struct SyncSettingsView: View {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                 } header: {
-                    Text("PocketBase Server")
+                    Text("NAS Server")
                 } footer: {
-                    Text("Sign in with a user from your server's users collection. Every Baselit app signed in to the same user keeps the same inventory, photos included.")
+                    Text("Sign in with your NAS account, the same one Inkpad uses. Every Baselit app signed in to it keeps the same inventory, photos included. This device needs Tailscale on to reach the server.")
                 }
                 Section {
                     Button {

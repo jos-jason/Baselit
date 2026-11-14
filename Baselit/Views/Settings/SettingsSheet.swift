@@ -22,7 +22,7 @@ struct SettingsSheet: View {
                         LabeledContent {
                             Text(SyncSettingsView.status(of: sync))
                         } label: {
-                            Label("PocketBase Sync", systemImage: "arrow.triangle.2.circlepath")
+                            Label("NAS Sync", systemImage: "arrow.triangle.2.circlepath")
                         }
                     }
                 }

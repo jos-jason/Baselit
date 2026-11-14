@@ -110,12 +110,12 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
       largeTitle: false,
       children: [
         if (!sync.signedIn) ...[
-          const SectionHeader('PocketBase Server'),
+          const SectionHeader('NAS Server'),
           GroupCard(
             children: [
               FieldRow(
                 controller: _url,
-                hint: 'https://pb.example.com',
+                hint: 'https://nas.tailnet.ts.net:8443',
                 keyboardType: TextInputType.url,
               ),
               FieldRow(
@@ -129,8 +129,9 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
-              'Sign in with a user from your server\'s users collection. Every Baselit '
-              'app signed in to the same user keeps the same inventory, photos included.',
+              'Sign in with your NAS account, the same one Inkpad uses. Every Baselit '
+              'app signed in to it keeps the same inventory, photos included. The '
+              'device needs Tailscale on to reach the server.',
               style: TextStyles.caption(context),
             ),
           ),
@@ -191,9 +192,9 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
-              'Changes sync a few seconds after you make them, every minute while '
-              'Baselit is open, and when you come back to it. Signing out keeps '
-              'everything on this device.',
+              'Changes sync a few seconds after you make them, every five minutes '
+              'while Baselit is open, and when you come back to it. Signing out '
+              'keeps everything on this device and on the server.',
               style: TextStyles.caption(context),
             ),
           ),
