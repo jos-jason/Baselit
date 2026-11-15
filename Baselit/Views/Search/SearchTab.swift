@@ -171,6 +171,11 @@ struct SearchTab: View {
             }
             .navigationTitle("Search")
             .onAppear { loadBubbleEntries() }
+            // Picks up changes made elsewhere, like items arriving through sync
+            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+                loadBubbleEntries()
+                if !searchText.isEmpty { performSearch() }
+            }
         }
     }
 
